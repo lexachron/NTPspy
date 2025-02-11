@@ -3,19 +3,19 @@ import struct
 import argparse
 import time
 import os
-from weakref import ref
 
 DEFAULT_NTP_PORT = 123
 DEFAULT_MAGIC_NUMBER = 0xDEADBEEF  # default magic number
 NTPSPY_VERSION = 0x01
+UNIX_TO_NTP = 2208988800
 
 # NTP packet format (48 bytes)
-# length (bits), field name, special purpose/values
+# length (bits), NTP field name, NTPspy special purpose/values
 # 2, LI, 0x3 = fatal error
 # 3, VN, 0x3 = NTPv3
 # 3, Mode, 0x4 = server mode, 0x3 = client mode
 # 8, Stratum, 0xF = server mode, 0x10 = client mode
-# 8, Poll = NTPspy opcode, 0x0 query NTPspy version, 0x1 transfer file
+# 8, Polling interval = NTPspy opcode, 0x0 query NTPspy version, 0x1 transfer file
 # 8, Precision, NTPspy protocol version
 # 16, Root Delay, NTPspy magic number
 # 16, Root Dispersion, (reserved)
@@ -44,10 +44,10 @@ class NTPServer:
             
             request_magic_number = struct.unpack("!I", data[4:8])[0]
             is_ntpspy = request_magic_number == self.magic_number
-            request_type = "NTPspy Traffic" if is_ntpspy else "Ordinary NTP Request"
+            request_type = "NTPspy" if is_ntpspy else "Standard"
             
             if self.verbose:
-                print(f"Received request from {addr}, type: {request_type}")
+                print(f"{addr[0]}:Received request, type: {request_type}")
             
             if is_ntpspy:
                 response = self.handle_ntpspy(data)
@@ -57,12 +57,13 @@ class NTPServer:
             sock.sendto(response, addr)
 
     def handle_normal_ntp(self, data):
-        recv_timestamp = time.time()
-        ntp_timestamp = int(recv_timestamp) + 2208988800  # UNIX to NTP 
-        fractional = int((recv_timestamp % 1) * (2**32))
-        
-        if self.verbose:
-            print(f"Received request, type: Ordinary NTP, timestamp: {recv_timestamp}")
+        li_vn_mode, stratum, poll, precision, root_delay, root_dispersion, reference_id, \
+        ref_timestamp_sec, ref_timestamp_frac, orig_timestamp_sec, orig_timestamp_frac, \
+        recv_timestamp_sec, recv_timestamp_frac, trans_timestamp_sec, trans_timestamp_frac = struct.unpack("!B B B B I I I I I I I I I I I", data)
+
+        recv_timestamp = int(time.time()) + UNIX_TO_NTP 
+        #ntp_timestamp = int(time.time()) + UNIX_TO_NTP 
+        fractional = 0
         
         response = struct.pack(
             "!B B B B 11I",
@@ -70,10 +71,10 @@ class NTPServer:
             15, 0, 0,  # Stratum 15, Poll, Precision
             0, 0,  # Root Delay, Root Dispersion
             0,  # Reference ID
-            ntp_timestamp, fractional,  # Reference Timestamp
-            ntp_timestamp, fractional,  # Originate Timestamp
-            ntp_timestamp, fractional,  # Receive Timestamp
-            ntp_timestamp, fractional   # Transmit Timestamp
+            ref_timestamp_sec, ref_timestamp_frac,  # Reference Timestamp
+            orig_timestamp_sec, orig_timestamp_frac,  # Originate Timestamp
+            recv_timestamp, fractional,  # Receive Timestamp
+            recv_timestamp, fractional   # Transmit Timestamp
         )
         
         if self.verbose:
@@ -135,7 +136,7 @@ class NTPClient:
         self.server_ip = server_ip
         self.port = port
         self.filename = filename
-        self.magic_number = magic_number
+        self.magic_number = 0#magic_number
         self.verbose = verbose
         self.session_id = session_id
 
