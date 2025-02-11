@@ -5,7 +5,7 @@ import time
 import os
 
 DEFAULT_NTP_PORT = 123
-DEFAULT_MAGIC_NUMBER = 0xDEADBEEF  # default magic number
+DEFAULT_MAGIC_NUMBER = 0xDEADBEEF
 NTPSPY_VERSION = 0x01
 UNIX_TO_NTP = 2208988800
 
@@ -24,6 +24,62 @@ UNIX_TO_NTP = 2208988800
 # 32, Originate Timestamp, [0:31] seconds, [32:63] hidden payload data
 # 32, Receive Timestamp, normal NTP timestamp
 # 32, Transmit Timestamp, normal NTP timestamp
+
+class NTPpacket:
+    def __init__(self):
+        self.LI = 0
+        self.VN = 3
+        self.mode = 0
+        self.stratum = 0
+        self.poll = 0
+        self.precision = 0
+        self.rootdelay = 0
+        self.rootdispersion = 0
+        self.refid = 0
+        self.reftimestamp = 0
+        self.origtimestamp = 0
+        self.recvtimestamp = 0
+        self.transtimestamp = 0
+    
+    def unpack(self, data):
+        unpacked = struct.unpack("!B B B B 11I", data)
+        self.LI = (unpacked[0] >> 6) & 0x3
+        self.VN = (unpacked[0] >> 3) & 0x7
+        self.mode = unpacked[0] & 0x7
+        self.stratum = unpacked[1]
+        self.poll = unpacked[2]
+        self.precision = unpacked[3]
+        self.rootdelay = unpacked[4]
+        self.rootdispersion = unpacked[5]
+        self.refid = unpacked[6]
+        self.reftime_sec = unpacked[7]
+        self.reftime_frac = unpacked[8]
+        self.origtime_sec = unpacked[9]
+        self.origtime_frac = unpacked[10]
+        self.recvtime_sec = unpacked[11]
+        self.recvtime_frac = unpacked[12]
+        self.transtime_sec = unpacked[13]
+        self.transtime_frac = unpacked[14]
+
+    def pack(self):
+        return struct.pack(
+            "!B B B B 11I",
+            (self.LI << 6) | (self.VN << 3) | self.mode,
+            self.stratum,
+            self.poll,
+            self.precision,
+            self.rootdelay,
+            self.rootdispersion,
+            self.refid,
+            self.reftime_sec,
+            self.reftime_frac,
+            self.origtime_sec,
+            self.origtime_frac,
+            self.recvtime_sec,
+            self.recvtime_frac,
+            self.transtime_sec,
+            self.transtime_frac
+        )
 
 class NTPServer:
     def __init__(self, port, storage_path, magic_number, verbose):
@@ -60,9 +116,11 @@ class NTPServer:
         li_vn_mode, stratum, poll, precision, root_delay, root_dispersion, reference_id, \
         ref_timestamp_sec, ref_timestamp_frac, orig_timestamp_sec, orig_timestamp_frac, \
         recv_timestamp_sec, recv_timestamp_frac, trans_timestamp_sec, trans_timestamp_frac = struct.unpack("!B B B B I I I I I I I I I I I", data)
+        li = (li_vn_mode >> 6) & 0x3
+        vn = (li_vn_mode >> 3) & 0x7
+        mode = li_vn_mode & 0x7
 
         recv_timestamp = int(time.time()) + UNIX_TO_NTP 
-        #ntp_timestamp = int(time.time()) + UNIX_TO_NTP 
         fractional = 0
         
         response = struct.pack(
@@ -87,10 +145,10 @@ class NTPServer:
         li_vn_mode, stratum, poll, precision, root_delay, root_dispersion, reference_id, \
         ref_timestamp_sec, ref_timestamp_frac, orig_timestamp_sec, orig_timestamp_frac, \
         recv_timestamp_sec, recv_timestamp_frac, trans_timestamp_sec, trans_timestamp_frac = struct.unpack("!B B B B I I I I I I I I I I I", data)
-
         li = (li_vn_mode >> 6) & 0x3
         vn = (li_vn_mode >> 3) & 0x7
         mode = li_vn_mode & 0x7
+
         opcode = poll
         session_id = reference_id
         sequence_number = ref_timestamp_frac
@@ -109,7 +167,7 @@ class NTPServer:
 
         # regular NTP response with current time
         recv_timestamp = time.time()
-        ntp_timestamp = int(recv_timestamp) + 2208988800  # UNIX to NTP 
+        ntp_timestamp = int(recv_timestamp) + UNIX_TO_NTP
         fractional = 0 # reserved 
         root_delay = self.magic_number
         precision = NTPSPY_VERSION
@@ -143,7 +201,7 @@ class NTPClient:
     def query_server(self):
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         
-        ntp_timestamp = int(time.time()) + 2208988800  # Convert UNIX to NTP epoch
+        ntp_timestamp = int(time.time()) + UNIX_TO_NTP
         fractional = 0  # reserved
         
         request = struct.pack(
@@ -229,7 +287,7 @@ if __name__ == "__main__":
     parser.add_argument("path_or_ip", help="Storage path (server) or server IP (client)")
     parser.add_argument("filename", nargs="?", help="Filename to transfer (client)")
     parser.add_argument("-q", action="store_true", help="Query server for NTPspy protocol version")
-    parser.add_argument("-d", type=str, help="Transfer session ID (alphanumeric, max length 4 characters)")
+    parser.add_argument("-d", type=str, help="Transfer session ID (8 digit hex)")
 
     args = parser.parse_args()
     if args.d and (not args.d.isalnum() or len(args.d) > 4):
