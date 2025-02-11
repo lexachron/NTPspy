@@ -3,6 +3,7 @@ import struct
 import argparse
 import time
 import os
+import sys
 
 DEFAULT_NTP_PORT = 123
 DEFAULT_MAGIC_NUMBER = 0xDEADBEEF
@@ -86,7 +87,34 @@ class NTPpacket:
             self.transtime_sec,
             self.transtime_frac
         )
-    
+
+class NTPspyMessage:
+    def __init__(self, session_id=0, sequence_number=0, payload=0, opcode=0):
+        self.session_id = session_id
+        self.sequence_number = sequence_number
+        self.payload = payload
+        self.opcode = opcode
+        self.version = NTPSPY_VERSION
+        self.status = 0
+
+    def from_ntp(self, ntp_packet):
+        self.session_id = ntp_packet.refid
+        self.sequence_number = ntp_packet.reftime_frac
+        self.payload = ntp_packet.transtime_frac
+        self.opcode = ntp_packet.poll
+        self.version = ntp_packet.precision
+        self.status = ntp_packet.LI
+
+    def to_ntp(self):
+        packet = NTPpacket()
+        packet.LI = self.status
+        packet.refid = self.session_id
+        packet.reftime_frac = self.sequence_number
+        packet.transtime_frac = self.payload
+        packet.poll = self.opcode
+        packet.precision = self.version
+        return packet
+
 class NTPServer:
     def __init__(self, port, storage_path, magic_number, verbose):
         self.port = port
@@ -99,24 +127,29 @@ class NTPServer:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.bind(("", self.port))
         if self.verbose:
-            print(f"NTP Server listening on port {self.port}, storing files in {self.storage_path}")
+            print(f"NTPspy version {NTPSPY_VERSION} listening on port {self.port}, storing files in {self.storage_path}")
         
-        while True:
-            data, addr = sock.recvfrom(48)
-            
-            request_magic_number = struct.unpack("!I", data[4:8])[0]
-            is_ntpspy = request_magic_number == self.magic_number
-            request_type = "NTPspy" if is_ntpspy else "Standard"
-            
-            if self.verbose:
-                print(f"{addr[0]}:Received request, type: {request_type}")
-            
-            if is_ntpspy:
-                response = self.handle_ntpspy(data)
-            else:
-                response = self.handle_normal_ntp(data)
-            
-            sock.sendto(response, addr)
+        try:
+            while True:
+                data, addr = sock.recvfrom(48)
+                
+                request_magic_number = struct.unpack("!I", data[4:8])[0]
+                is_ntpspy = request_magic_number == self.magic_number
+                request_type = "NTPspy" if is_ntpspy else "Standard"
+                
+                if self.verbose:
+                    print(f"{addr[0]}:Received request, type: {request_type}")
+                
+                if is_ntpspy:
+                    response = self.handle_ntpspy(data)
+                else:
+                    response = self.handle_normal_ntp(data)
+                
+                sock.sendto(response, addr)
+        except KeyboardInterrupt:
+            print("Server shutting down...")
+        finally:
+            sock.close()
 
     def handle_normal_ntp(self, data):
         li_vn_mode, stratum, poll, precision, root_delay, root_dispersion, reference_id, \
@@ -200,7 +233,7 @@ class NTPClient:
         self.server_ip = server_ip
         self.port = port
         self.filename = filename
-        self.magic_number = 0#magic_number
+        self.magic_number = 0
         self.verbose = verbose
         self.session_id = session_id
 
@@ -240,7 +273,7 @@ class NTPClient:
         
         return precision == NTPSPY_VERSION
 
-    def send_request(self):
+    def upload(self):
         if not self.query_server():
             return
         
@@ -285,7 +318,7 @@ class NTPClient:
                 sequence_number += 1
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="NTPspy - Covert NTP-based file transfer")
+    parser = argparse.ArgumentParser(description="NTPspy - NTP based file transfer utility")
     parser.add_argument("-s", action="store_true", help="Run as server")
     parser.add_argument("-p", type=int, default=DEFAULT_NTP_PORT, help="Port number")
     parser.add_argument("-m", type=int, default=DEFAULT_MAGIC_NUMBER, help="Magic number")
@@ -296,8 +329,6 @@ if __name__ == "__main__":
     parser.add_argument("-d", type=str, help="Transfer session ID (8 digit hex)")
 
     args = parser.parse_args()
-    if args.d and (not args.d.isalnum() or len(args.d) > 4):
-        parser.error("session ID must be alphanumeric, length <= 4")
 
     if args.s:
         # server mode
@@ -307,9 +338,18 @@ if __name__ == "__main__":
     else:
         # client mode
         if not args.filename:
-            parser.error("client mode requires a filename to transfer")
+            parser.error("client mode requires a filename")
+            sys.exit(1)
+        if args.d:
+            if not (len(args.d) <= 8 and all(c in '0123456789abcdefABCDEF' for c in args.d) and int(args.d, 16) != 0):
+                parser.error("Session ID must be hex 1 - FFFFFFFF")
+                sys.exit(1)
+        if args.m:
+            if not (len(args.d) <= 8 and all(c in '0123456789abcdefABCDEF' for c in args.d)):
+                parser.error("Magic number must be hex 0 - FFFFFFFF")
+                sys.exit(1)
         client = NTPClient(args.path_or_ip, args.p, args.filename, args.m, args.v, args.d or "")
         if args.q:
             client.query_server()
         else:
-            client.send_request()
+            client.upload()
