@@ -116,11 +116,11 @@ class NTPspyMessage:
         return packet
 
 class NTPServer:
-    def __init__(self, port, storage_path, magic_number, verbose):
-        self.port = port
-        self.storage_path = storage_path
-        self.magic_number = magic_number
-        self.verbose = verbose
+    def __init__(self, args):
+        self.port = args.p
+        self.storage_path = args.path_or_ip if os.path.isdir(args.path_or_ip) else os.getcwd()
+        self.magic_number = args.m
+        self.verbose = args.v
 
     def start(self):
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -332,8 +332,7 @@ if __name__ == "__main__":
 
     if args.s:
         # server mode
-        storage_path = args.path_or_ip if os.path.isdir(args.path_or_ip) else os.getcwd()
-        server = NTPServer(args.p, storage_path, args.m, args.v)
+        server = NTPServer(args)
         server.start()
     else:
         # client mode
