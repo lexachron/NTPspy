@@ -26,7 +26,7 @@ UNIX_TO_NTP = 2208988800
 # 32, Transmit Timestamp, normal NTP timestamp
 
 class NTPpacket:
-    def __init__(self):
+    def __init__(self, data=False):
         self.LI = 0
         self.VN = 3
         self.mode = 0
@@ -36,11 +36,17 @@ class NTPpacket:
         self.rootdelay = 0
         self.rootdispersion = 0
         self.refid = 0
-        self.reftimestamp = 0
-        self.origtimestamp = 0
-        self.recvtimestamp = 0
-        self.transtimestamp = 0
-    
+        self.reftime_sec = 0
+        self.reftime_frac = 0
+        self.origtime_sec = 0
+        self.origtime_frac = 0
+        self.recvtime_sec = 0
+        self.recvtime_frac = 0
+        self.transtime_sec = 0
+        self.transtime_frac = 0
+        if data:
+            self.unpack(data)
+
     def unpack(self, data):
         unpacked = struct.unpack("!B B B B 11I", data)
         self.LI = (unpacked[0] >> 6) & 0x3
@@ -80,7 +86,7 @@ class NTPpacket:
             self.transtime_sec,
             self.transtime_frac
         )
-
+    
 class NTPServer:
     def __init__(self, port, storage_path, magic_number, verbose):
         self.port = port
