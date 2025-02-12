@@ -27,7 +27,7 @@ UNIX_TO_NTP = 2208988800
 # 32, Transmit Timestamp, normal NTP timestamp
 
 class NTPpacket:
-    def __init__(self, data=False):
+    def __init__(self, data=None):
         self.LI = 0
         self.VN = 3
         self.mode = 0
@@ -118,9 +118,9 @@ class NTPspyMessage:
 class NTPServer:
     def __init__(self, args):
         self.port = args.p
-        self.storage_path = args.path_or_ip if os.path.isdir(args.path_or_ip) else os.getcwd()
+        self.storage_path = args.s if os.path.isdir(args.s) else os.getcwd()
         self.magic_number = args.m
-        self.verbose = args.v
+        self.verbose = True if args.v else False
 
     def start(self):
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -146,7 +146,7 @@ class NTPServer:
                     response = self.handle_normal_ntp(data)
                 
                 sock.sendto(response, addr)
-        except KeyboardInterrupt:
+        except:
             print("Server shutting down...")
         finally:
             sock.close()
@@ -229,15 +229,14 @@ class NTPServer:
         return response
 
 class NTPClient:
-    def __init__(self, server_ip, port, filename, magic_number, verbose, session_id):
-        self.server_ip = server_ip
-        self.port = port
-        self.filename = filename
-        self.magic_number = 0
-        self.verbose = verbose
-        self.session_id = session_id
+    def __init__(self, args):
+        self.server_ip = args.remote
+        self.verbose = True if args.v else False
+        self.session_id = args.d if args.d else DEFAULT_MAGIC_NUMBER
+        self.port = args.p if args.p else DEFAULT_NTP_PORT
+        self.magic_number = args.m if args.m else DEFAULT_MAGIC_NUMBER
 
-    def query_server(self):
+    def query_server(self, remote):
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         
         ntp_timestamp = int(time.time()) + UNIX_TO_NTP
@@ -273,7 +272,7 @@ class NTPClient:
         
         return precision == NTPSPY_VERSION
 
-    def upload(self):
+    def upload(self, remote, filename):
         if not self.query_server():
             return
         
@@ -319,16 +318,25 @@ class NTPClient:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="NTPspy - NTP based file transfer utility")
-    parser.add_argument("-s", action="store_true", help="Run as server")
+    parser.add_argument("-s", type=str, help="Server mode <storage path>")
     parser.add_argument("-p", type=int, default=DEFAULT_NTP_PORT, help="Port number")
-    parser.add_argument("-m", type=int, default=DEFAULT_MAGIC_NUMBER, help="Magic number")
+    parser.add_argument("-m", type=str, default=DEFAULT_MAGIC_NUMBER, help="Magic number (hex 1-FFFFFFFF)")
     parser.add_argument("-v", action="store_true", help="Verbose mode")
-    parser.add_argument("path_or_ip", help="Storage path (server) or server IP (client)")
-    parser.add_argument("filename", nargs="?", help="Filename to transfer (client)")
     parser.add_argument("-q", action="store_true", help="Query server for NTPspy protocol version")
-    parser.add_argument("-d", type=str, help="Transfer session ID (8 digit hex)")
+    parser.add_argument("-d", type=str, help="Transfer session ID (hex 1-FFFFFFFF)")
+    parser.add_argument("-t", type=int, help="Minimum interval (ms) (client only)")
+    parser.add_argument("remote", type=str, nargs='?', help="server IP (client only)")
+    parser.add_argument("filename", type=argparse.FileType('r'), nargs='?', help="Filename to transfer (client only)")
 
     args = parser.parse_args()
+    if args.d:
+        if not (len(args.d) <= 8 and all(c in '0123456789abcdefABCDEF' for c in args.d) and int(args.d, 16) != 0):
+            parser.error("Session ID must be hex 1 - FFFFFFFF")
+            sys.exit(1)
+    if args.p:
+        if not (0 < args.p < 65536):
+            parser.error("Port number must be 1 - 65535")
+            sys.exit(1)
 
     if args.s:
         # server mode
@@ -336,19 +344,11 @@ if __name__ == "__main__":
         server.start()
     else:
         # client mode
-        if not args.filename:
-            parser.error("client mode requires a filename")
+        if not args.remote or not args.filename:
+            parser.error("Remote IP and filename required in client mode")
             sys.exit(1)
-        if args.d:
-            if not (len(args.d) <= 8 and all(c in '0123456789abcdefABCDEF' for c in args.d) and int(args.d, 16) != 0):
-                parser.error("Session ID must be hex 1 - FFFFFFFF")
-                sys.exit(1)
-        if args.m:
-            if not (len(args.d) <= 8 and all(c in '0123456789abcdefABCDEF' for c in args.d)):
-                parser.error("Magic number must be hex 0 - FFFFFFFF")
-                sys.exit(1)
-        client = NTPClient(args.path_or_ip, args.p, args.filename, args.m, args.v, args.d or "")
+        client = NTPClient(args)
         if args.q:
-            client.query_server()
+            client.query_server(args.remote)
         else:
-            client.upload()
+            client.upload(args.remote, args.filename)
