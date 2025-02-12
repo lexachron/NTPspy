@@ -88,6 +88,9 @@ class NTPpacket:
             self.transtime_frac
         )
 
+    def is_ntpspy(self):
+        return self.precision == NTPSPY_VERSION
+
 class NTPspyMessage:
     def __init__(self, session_id=0, sequence_number=0, payload=0, opcode=0):
         self.session_id = session_id
@@ -132,50 +135,34 @@ class NTPServer:
         try:
             while True:
                 data, addr = sock.recvfrom(48)
-                
-                request_magic_number = struct.unpack("!I", data[4:8])[0]
-                is_ntpspy = request_magic_number == self.magic_number
-                request_type = "NTPspy" if is_ntpspy else "Standard"
-                
+                ntp_in = NTPpacket(data)
+                #request_magic_number = struct.unpack("!I", data[4:8])[0]
+                #is_ntpspy = request_magic_number == self.magic_number
+
+                request_type = "NTPspy" if ntp_in.is_ntpspy else "Standard"
                 if self.verbose:
                     print(f"{addr[0]}:Received request, type: {request_type}")
                 
-                if is_ntpspy:
+                if ntp_in.is_ntpspy:
                     response = self.handle_ntpspy(data)
                 else:
-                    response = self.handle_normal_ntp(data)
+                    response = self.handle_standard(ntp_in)
                 
                 sock.sendto(response, addr)
-        except:
+        except KeyboardInterrupt:
             print("Server shutting down...")
         finally:
             sock.close()
 
-    def handle_normal_ntp(self, data):
-        li_vn_mode, stratum, poll, precision, root_delay, root_dispersion, reference_id, \
-        ref_timestamp_sec, ref_timestamp_frac, orig_timestamp_sec, orig_timestamp_frac, \
-        recv_timestamp_sec, recv_timestamp_frac, trans_timestamp_sec, trans_timestamp_frac = struct.unpack("!B B B B I I I I I I I I I I I", data)
-        li = (li_vn_mode >> 6) & 0x3
-        vn = (li_vn_mode >> 3) & 0x7
-        mode = li_vn_mode & 0x7
+    def handle_standard(self, request):
 
-        recv_timestamp = int(time.time()) + UNIX_TO_NTP 
-        fractional = 0
-        
-        response = struct.pack(
-            "!B B B B 11I",
-            0x1C,  # LI=0, Version=3, Mode=4 (server)
-            15, 0, 0,  # Stratum 15, Poll, Precision
-            0, 0,  # Root Delay, Root Dispersion
-            0,  # Reference ID
-            ref_timestamp_sec, ref_timestamp_frac,  # Reference Timestamp
-            orig_timestamp_sec, orig_timestamp_frac,  # Originate Timestamp
-            recv_timestamp, fractional,  # Receive Timestamp
-            recv_timestamp, fractional   # Transmit Timestamp
-        )
-        
+        response = NTPpacket()
+        response.mode = 4  # server mode
+        response.stratum = 15  # server mode
+        response.transtime_sec = int(time.time()) + UNIX_TO_NTP 
+
         if self.verbose:
-            print(f"Sent response, type: Ordinary NTP, timestamp: {recv_timestamp}")
+            print(f"Response type: standard NTP, timestamp: {response.transtime_sec}")
         
         return response
 
@@ -291,7 +278,7 @@ class NTPClient:
                 # segment to integer
                 payload = int.from_bytes(segment, 'big')
                 
-                ntp_timestamp = int(time.time()) + 2208988800  # Convert UNIX to NTP epoch
+                ntp_timestamp = int(time.time()) + UNIX_TO_NTP
                 fractional = 0  # Placeholder for now
                 
                 request = struct.pack(
@@ -324,7 +311,8 @@ if __name__ == "__main__":
     parser.add_argument("-v", action="store_true", help="Verbose mode")
     parser.add_argument("-q", action="store_true", help="Query server for NTPspy protocol version")
     parser.add_argument("-d", type=str, help="Transfer session ID (hex 1-FFFFFFFF)")
-    parser.add_argument("-t", type=int, help="Minimum interval (ms) (client only)")
+    #parser.add_argument("-t", type=int, help="Minimum interval (ms) (client only)")
+    #parser.add_argument("-x", action="store_true", help="Obfuscate payload (client only)")
     parser.add_argument("remote", type=str, nargs='?', help="server IP (client only)")
     parser.add_argument("filename", type=argparse.FileType('r'), nargs='?', help="Filename to transfer (client only)")
 
