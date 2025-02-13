@@ -99,6 +99,7 @@ class NTPspyMessage:
         self.opcode = opcode
         self.version = NTPSPY_VERSION
         self.status = 0
+        self.magic = DEFAULT_MAGIC_NUMBER
 
     def from_ntp(self, ntp_packet):
         self.session_id = ntp_packet.refid
@@ -107,6 +108,7 @@ class NTPspyMessage:
         self.opcode = ntp_packet.poll
         self.version = ntp_packet.precision
         self.status = ntp_packet.LI
+        self.magic = ntp_packet.rootdelay
 
     def to_ntp(self):
         packet = NTPpacket()
@@ -116,6 +118,7 @@ class NTPspyMessage:
         packet.transtime_frac = self.payload
         packet.poll = self.opcode
         packet.precision = self.version
+        packet.rootdelay = self.magic
         return packet
 
 class NTPServer:
@@ -166,23 +169,23 @@ class NTPServer:
         
         return response
 
-    def handle_ntpspy(self, data):
+    def handle_ntpspy(self, ntp):
         # extract ntp fields
-        li_vn_mode, stratum, poll, precision, root_delay, root_dispersion, reference_id, \
-        ref_timestamp_sec, ref_timestamp_frac, orig_timestamp_sec, orig_timestamp_frac, \
-        recv_timestamp_sec, recv_timestamp_frac, trans_timestamp_sec, trans_timestamp_frac = struct.unpack("!B B B B I I I I I I I I I I I", data)
-        li = (li_vn_mode >> 6) & 0x3
-        vn = (li_vn_mode >> 3) & 0x7
-        mode = li_vn_mode & 0x7
+        # li_vn_mode, stratum, poll, precision, root_delay, root_dispersion, reference_id, \
+        # ref_timestamp_sec, ref_timestamp_frac, orig_timestamp_sec, orig_timestamp_frac, \
+        # recv_timestamp_sec, recv_timestamp_frac, trans_timestamp_sec, trans_timestamp_frac = struct.unpack("!B B B B I I I I I I I I I I I", data)
+        # li = (li_vn_mode >> 6) & 0x3
+        # vn = (li_vn_mode >> 3) & 0x7
+        # mode = li_vn_mode & 0x7
 
-        opcode = poll
-        session_id = reference_id
-        sequence_number = ref_timestamp_frac
-        payload = orig_timestamp_frac
-        function = "query" if opcode == 0x0 else "transfer file"
-        
+        # opcode = poll
+        # session_id = reference_id
+        # sequence_number = ref_timestamp_frac
+        # payload = orig_timestamp_frac
+        # function = "query" if opcode == 0x0 else "transfer file"
+        message = NTPspyMessage().from_ntp(ntp)
         if self.verbose:
-            print(f"Received request, type: NTPspy, function: {function}")
+            print(f"Received request, type: NTPspy, function: {message.opcode}")
         
         if opcode == 0x1:
             filename = os.path.join(self.storage_path, f"{session_id}.dat")
@@ -198,22 +201,35 @@ class NTPServer:
         root_delay = self.magic_number
         precision = NTPSPY_VERSION
         
-        response = struct.pack(
-            "!B B B B 11I",
-            0x1C,  # LI=0, Version=3, Mode=4 (server)
-            15, opcode, precision,  # Stratum 15 = server mode, poll = opcode, precision = protocol version
-            root_delay, 0,  # root Delay, root dispersion
-            session_id,  # reference ID field
-            ref_timestamp_sec, ref_timestamp_frac,  # Reference Timestamp
-            orig_timestamp_sec, orig_timestamp_frac,  # Originate Timestamp
-            ntp_timestamp, fractional,  # Receive Timestamp
-            ntp_timestamp, fractional   # Transmit Timestamp
-        )
-        
+        # response = struct.pack(
+        #     "!B B B B 11I",
+        #     0x1C,  # LI=0, Version=3, Mode=4 (server)
+        #     15, opcode, precision,  # Stratum 15 = server mode, poll = opcode, precision = protocol version
+        #     root_delay, 0,  # root Delay, root dispersion
+        #     session_id,  # reference ID field
+        #     ref_timestamp_sec, ref_timestamp_frac,  # Reference Timestamp
+        #     orig_timestamp_sec, orig_timestamp_frac,  # Originate Timestamp
+        #     ntp_timestamp, fractional,  # Receive Timestamp
+        #     ntp_timestamp, fractional   # Transmit Timestamp
+        # )
+        response = NTPspyMessage()
         if self.verbose:
             print(f"Sent response, function: {function}, value: {precision}")
         
         return response
+
+    def handle_query(self, message):
+        response = NTPspyMessage()
+        response.opcode = 0x0
+        response.session_id = 0
+        response.sequence_number = 0
+        response.payload = 0
+        response.version = NTPSPY_VERSION
+        response.status = 0
+        response.magic = self.magic_number
+        return response
+    def handle_transfer(self, message):
+        pass
 
 class NTPClient:
     def __init__(self, args):
