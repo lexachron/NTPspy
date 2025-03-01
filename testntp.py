@@ -33,7 +33,22 @@ def test_encapsulate_ntpspy_message(ntp, ntpspy):
         ntp (NTPpacket): NTPpacket class instance
         ntpspy (NTPspyMessage): NTPspyMessage
     """
-    pass
+    field_mapping = {
+        "version": "precision",
+        "status": "LI",
+        "magic": "rootdelay",
+        "session_id": "refid",
+        "payload": "transtime_frac",
+        "sequence_number": "reftime_frac",
+        "opcode": "poll"
+    }
+    test = ntpspy.to_ntp()
+    for key, value in field_mapping.items():
+        if getattr(ntp, value) != getattr(test, value):
+            print(f"{key} {getattr(ntp, value)} {getattr(test, value)}")
+            return False
+    return True
+
 
 def test_decapsulate_ntpspy_message(ntp, ntpspy):
     """
@@ -45,6 +60,7 @@ def test_decapsulate_ntpspy_message(ntp, ntpspy):
     test = NTPspyMessage(ntp)
     for key in vars(ntpspy).keys():
         if getattr(ntpspy, key) != getattr(test, key):
+            print(f"{key} {getattr(ntpspy, key)} {getattr(test, key)}")
             return False
     return True
 
@@ -57,9 +73,10 @@ def test_payload(ntp, ntpspy, chunk):
         chunk (bytes): raw NTP datagram
     """
     # test_decode_ntp_datagram(ntp, chunk)
-    test_decapsulate_ntpspy_message(ntp, ntpspy)
-
-    return True
+    if (test_decapsulate_ntpspy_message(ntp, ntpspy) and
+        test_encapsulate_ntpspy_message(ntp, ntpspy)):
+        return True
+    return False
 
 def json_to_ntp(json):
     """
