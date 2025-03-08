@@ -99,3 +99,6 @@ class NTPdatagram:
             xmt_whole=unpacked[13],
             xmt_frac=unpacked[14],
         )
+
+    def is_ntpspy(self, magic):
+        return self.rootdelay == magic

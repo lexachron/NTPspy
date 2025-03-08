@@ -27,10 +27,9 @@ class TestNTPspymessage(unittest.TestCase):
         for row_num, spy_fields, ntp_fields in self.test_cases:
             with self.subTest(row=row_num):
                 ntp = NTPdatagram(**ntp_fields)
-                spy = NTPspymessage(**spy_fields)
-                new = NTPspymessage.from_ntp(ntp)
+                spy = NTPspymessage.from_ntp(ntp)
                 for field, value in spy_fields.items():
-                    actual = getattr(new, field)
+                    actual = getattr(spy, field)
                     expected = value
                     self.assertEqual(actual, expected, f"row {row_num}, mismatch field {field}")
 

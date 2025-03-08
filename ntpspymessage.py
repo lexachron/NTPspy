@@ -2,7 +2,7 @@ from ntpdatagram import NTPdatagram
 
 # NTPspy messages are encapsulated within standard NTP datagrams
 
-class NTPspymessage:
+class NTPspyMessage:
     def __init__(self,
                  status=0,
                  function=0,
@@ -37,7 +37,7 @@ class NTPspymessage:
             # length of ntpspy.payload in bytes, valid range 0-4
 
     @classmethod
-    def from_ntp(cls, ntp : NTPdatagram):
+    def from_ntp(cls, ntp: NTPdatagram):
         return cls(
             status=ntp.leap,
             function=ntp.poll,
@@ -49,7 +49,7 @@ class NTPspymessage:
             length=ntp.rootdispersion
         )
     
-    def to_ntp(self, ntp=None):
+    def to_ntp(self, ntp: NTPdatagram=None) -> NTPdatagram:
         if ntp is None:
             ntp = NTPdatagram()
         ntp.leap = self.status
