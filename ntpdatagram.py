@@ -5,8 +5,8 @@ class NTPdatagram:
     _SIZE = struct.calcsize(_FORMAT)
     _RANGES = {
         'leap': (0, 3), # 2 bits
-        'version': (0, 7), # 3 bits
-        'mode': (0, 7), # 3 bits
+        'version': (0, 7), # 3 bits, always 3
+        'mode': (0, 7), # 3 bits, 3: client, 4: server
         'stratum': (0, 255), # 8 bits, unsigned. valid range: 1-15
         'poll': (-128, 127), # 8 bits, signed. log(poll) seconds
         'precision': (-128, 127), # 8 bits, signed. log(precision) seconds

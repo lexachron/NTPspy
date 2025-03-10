@@ -2,7 +2,7 @@ import unittest
 import csv
 
 from ntpdatagram import NTPdatagram
-from ntpspymessage import NTPspymessage
+from ntpspymessage import NTPspyMessage
 
 TESTDATA = "test_ntpspymessage.csv"
 
@@ -22,12 +22,12 @@ class TestNTPspymessage(unittest.TestCase):
                         ntp_fields[key[4:]] = int(value, base)
                 cls.test_cases.append((row_num, spy_fields, ntp_fields))
 
-    def test_from_ntp(self) -> NTPspymessage:
+    def test_from_ntp(self) -> NTPspyMessage:
         """NTPdatagram -> from_ntp() -> NTPspymessage"""
         for row_num, spy_fields, ntp_fields in self.test_cases:
             with self.subTest(row=row_num):
                 ntp = NTPdatagram(**ntp_fields)
-                spy = NTPspymessage.from_ntp(ntp)
+                spy = NTPspyMessage.from_ntp(ntp)
                 for field, value in spy_fields.items():
                     actual = getattr(spy, field)
                     expected = value
@@ -37,7 +37,7 @@ class TestNTPspymessage(unittest.TestCase):
         """NTPspymessage -> to_ntp() -> NTPdatagram"""
         for row_num, spy_fields, ntp_fields in self.test_cases:
             with self.subTest(row=row_num):
-                spy = NTPspymessage(**spy_fields)
+                spy = NTPspyMessage(**spy_fields)
                 expected = NTPdatagram(**ntp_fields)
                 actual = spy.to_ntp()
                 for field, value in ntp_fields.items():
