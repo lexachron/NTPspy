@@ -1,65 +1,111 @@
-import socket
+import asyncio
+import sys
+import logging
 
-from ntpdatagram import NTPdatagram
+from ntpdatagram import NTPdatagram, NTPmode
 from ntpspymessage import NTPspyMessage
 
-DEFAULT_PATH = "./"
-DEFAULT_MAGIC = 0xdeadbeef
-NTPSPY_VERSION = 1
-UNIX_TO_NTP = 2208988800
-SERVER_MODE = 4
+_DEFAULT = {
+    "port": 1234,
+    "magic": 0xDEADBEEF,
+    "path": "./",
+}
 
-class NTPspyServer:
-    def __init__(self, port=123, path=DEFAULT_PATH, magic=DEFAULT_MAGIC, version=NTPSPY_VERSION, verbose=False):
+class NTPspyServer(asyncio.DatagramProtocol):
+    def __init__(self, port=_DEFAULT["port"], magic=_DEFAULT["magic"], path=_DEFAULT["path"], verbose=False):
+        self.interactive = sys.flags.interactive 
+        self.transport = None
+        self.incoming_queue = asyncio.Queue()
+        self.outgoing_queue = asyncio.Queue()
+        self.running = False
+        self.mode = NTPmode.SERVER
         self.port = port
-        self.path = path
         self.magic = magic
-        self.mode = SERVER_MODE
+        self.path = path
         self.verbose = verbose
-        self.version = version
 
-    def start(self):
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-            if self.verbose:
-                print(f"NTPspy version {NTPSPY_VERSION} listening on port {self.port}, storing files in {self.path}, magic number: 0x{self.magic:x}")
-            sock.bind(("", self.port))
-            while True:
-                data, (addr, port) = sock.recvfrom(1024)
-                ntp = NTPdatagram.from_bytes(data)
+    async def start(self):
+        loop = asyncio.get_running_loop()
+        try:
+            await loop.create_datagram_endpoint(
+                lambda: self, local_addr=("0.0.0.0", self.port)
+            )
+            self.running = True
+            print(f"NTPspy Server started on {self.port}")
+        except OSError as e:
+            print(f"Failed to bind to port {self.port}: {e}")
+            return
+        asyncio.create_task(self.process_incoming())
+        asyncio.create_task(self.process_outgoing())
+
+    def connection_made(self, transport):
+        print(f"Transport initialized: {transport}")
+        self.transport = transport
+
+    def datagram_received(self, data, addr):
+        print(f"Received {len(data)} bytes from {addr}")
+        self.incoming_queue.put_nowait((data, addr))
+
+    async def process_incoming(self):
+        print("process_incoming task started")
+        while self.running:
+            data, addr = await self.incoming_queue.get()
+
+            try:
+                ntp_msg = NTPdatagram.from_bytes(data)
+            except ValueError as e:
+                print(f"Invalid NTP message from {addr}: {e}")
+                continue
+
+            if ntp_msg.is_ntpspy(self.magic):
+                spy_msg = NTPspyMessage.from_ntp(ntp_msg)
                 if self.verbose:
-                    print(f"{addr}:{port} - {vars(ntp)}")
-                if ntp.is_ntpspy(self.magic):
-                    spy = NTPspyMessage.from_ntp(ntp)
-                    if self.verbose:
-                        print(f"{addr}:{port} - {vars(spy)}")
-                    #spy_response = handle_ntpspy(spy)
-                #ntp_response = handle_ntp(ntp)
+                    print(f"Received NTPspy message from {addr}: {vars(spy_msg)}")
+                response = self.handle_ntpspy(spy_msg)
+                self.outgoing_queue.put_nowait((response, addr))
+            else:
+                if self.verbose:
+                    print(f"Received standard NTP message from {addr}: {vars(ntp_msg)}")
 
-                #if ntp.is_ntpspy(self.magic):
-                #    response = spy_response.to_ntp(ntp_response)
+    async def process_outgoing(self):
+        print("process_outgoing task started")
+        while self.running:
+            response, addr = await self.outgoing_queue.get()
+            if response is None:
+                break
+            self.transport.sendto(response.to_bytes(), addr)
 
-                #sock.sendto(response.to_bytes(), (addr, port))
+    def handle_ntpspy(self, spy_msg):
+        response = NTPspyMessage(
+            status=0, function=spy_msg.function, version=spy_msg.version,
+            magic=self.magic, session_id=spy_msg.session_id,
+            sequence_number=spy_msg.sequence_number + 1, payload=0, length=0
+        )
+        return response.to_ntp()
 
-    def handle_ntp(self, ntp: NTPdatagram):
-        """process NTP fields IAW RFC"""
-        pass
+    def stop(self):
+        self.running = False
+        self.outgoing_queue.put_nowait((None, None))
+        if self.transport:
+            self.transport.close()
+        print("Server stopped.")
 
-    def handle_ntpspy(self, spy: NTPspyMessage):
-        """process NTPspy functions"""
-        pass
+# Only runs if executed directly, not in REPL or when imported
+if __name__ == "__main__" and not sys.flags.interactive:
+    async def main():
+        server = NTPspyServer()
+        await server.start()
+        while server.running:  
+            try:
+                await asyncio.sleep(1)
+            except KeyboardInterrupt:
+                server.stop()
 
-    def function_query(self, spy: NTPspyMessage):
-        """respond to version probe"""
-        pass
+    asyncio.run(main())
 
-    def function_transfer(self, spy: NTPspyMessage):
-        """receive file transfer"""
-        pass
-
-    def function_verify(self, spy: NTPspyMessage):
-        """return checksum of received file"""
-        pass
-
-    def function_rename(self, spy: NTPspyMessage):
-        """rename received file"""
-        pass
+# REPL mode (debug/testing)
+if sys.flags.interactive:
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    print("\nEvent loop initialized.")
+    print("To start the server, use: loop.run_until_complete(server.start())")

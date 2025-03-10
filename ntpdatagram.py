@@ -1,4 +1,9 @@
 import struct
+from enum import Enum
+
+class NTPmode(Enum):
+    CLIENT = 3
+    SERVER = 4
 
 class NTPdatagram:
     _FORMAT = "!B B b b I I I I I I I I I I I"
