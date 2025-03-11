@@ -3,7 +3,7 @@ from ntpdatagram import NTPdatagram
 from ntpspymessage import NTPspyMessage
 
 class NTPspyClient:
-    def __init__(self, remote="127.0.0.1", port=1234, timeout=2.0):
+    def __init__(self, remote="127.0.0.1", port=1234, magic=0xDEADBEEF, timeout=2, verbose=False):
         self.server_addr = (remote, port)
         self.timeout = timeout
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
