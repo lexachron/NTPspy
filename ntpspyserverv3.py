@@ -3,7 +3,8 @@ import threading
 import logging
 import sys
 
-from ntpdatagram import NTPdatagram
+from logging import StreamHandler, Formatter
+from ntpdatagram import NTPdatagram, NTPmode
 from ntpspymessage import NTPspyMessage
 # from storageprovider import FileStorageProvider # TODO
 # from timestampgen import TimestampGenerator # TODO
@@ -19,8 +20,13 @@ class NTPspyServer(asyncio.DatagramProtocol):
         self.storage_provider = storage_provider # or FileStorageProvider() # TODO
         self.running = False
         self.loop = None
-        self.logger = logging.getLogger("__name__")
+        self.logger = logging.getLogger(type(self).__name__)
         self.logger.setLevel(logging.DEBUG if verbose else logging.INFO)
+        handler = logging.StreamHandler()
+        handler.setLevel(logging.DEBUG if verbose else logging.INFO)
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        handler.setFormatter(formatter)
+        self.logger.addHandler(handler)        
         self.interactive = sys.flags.interactive
 
 
@@ -47,8 +53,8 @@ class NTPspyServer(asyncio.DatagramProtocol):
         await loop.create_datagram_endpoint(lambda: self, local_addr=(self.host, self.port))
         asyncio.create_task(self._transmit_loop())
         self.logger.info(f"NTPspy Server started on {self.host}:{self.port}")
-        if not self.interactive:
-            asyncio.create_task(self._dispatch_loop())
+        asyncio.create_task(self._dispatch_loop())
+
 
     def connection_made(self, transport):
         self.transport = transport
@@ -70,8 +76,10 @@ class NTPspyServer(asyncio.DatagramProtocol):
 
     async def _dispatch_loop(self):
         """process incoming packets automatically (disable in REPL mode)"""
-        while self.running:
-            await self.dispatch_one()
+        while True:
+            if self.running:
+                await self.dispatch_one()
+            await asyncio.sleep(0.01)
 
     async def dispatch_one(self):
         """process single packet"""
@@ -105,7 +113,7 @@ class NTPspyServer(asyncio.DatagramProtocol):
     def handle_ntp_request(self, datagram: NTPdatagram) -> NTPdatagram:
         """process standard NTP fields IAW RFC 1305"""
         reply = datagram
-        reply.mode = NTPdatagram.MODE_SERVER
+        reply.mode = NTPmode.SERVER
         return reply  
 
     def purge_queues(self):

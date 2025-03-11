@@ -4,6 +4,7 @@ from ntpspymessage import NTPspyMessage
 
 class NTPspyClient:
     def __init__(self, remote="127.0.0.1", port=1234, magic=0xDEADBEEF, timeout=2, verbose=False):
+        self.verbose = verbose
         self.server_addr = (remote, port)
         self.timeout = timeout
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -18,6 +19,8 @@ class NTPspyClient:
             data, addr = self.sock.recvfrom(1024)
             response = NTPdatagram.from_bytes(data)
             print(f"Received response from {addr}: {response}")
+            if self.verbose:
+                print(vars(response))
             return response
         except socket.timeout:
             print("Timeout waiting for response.")

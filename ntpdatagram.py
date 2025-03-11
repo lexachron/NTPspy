@@ -31,7 +31,7 @@ class NTPdatagram:
         self,
         leap=0,
         version=3,
-        mode=0,
+        mode=NTPmode.CLIENT,
         stratum=0,
         poll=0,
         precision=0,
@@ -50,16 +50,16 @@ class NTPdatagram:
         # range check
         args = locals()
         args.pop('self')
-        for field, (min_val, max_val) in self._RANGES.items():
-            value = args[field]
-            if not (min_val <= value <= max_val):
-                raise ValueError(f"{field}: {value} outside valid range ({min_val}-{max_val})")
+#        for field, (min_val, max_val) in self._RANGES.items():
+#            value = args[field]
+#            if not (min_val <= value <= max_val):
+#                raise ValueError(f"{field}: {value} outside valid range ({min_val}-{max_val})")
 
         for field, value in args.items():
             setattr(self, field, value)
 
     def to_bytes(self):
-        li_vn_mode = (self.leap << 6) | (self.version << 3) | self.mode
+        li_vn_mode = (self.leap << 6) | (self.version << 3) | self.mode.value
         return struct.pack(
             self._FORMAT,
             li_vn_mode,
