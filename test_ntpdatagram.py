@@ -2,7 +2,7 @@ import unittest
 import csv
 from ntpdatagram import NTPdatagram, NTPmode
 
-TESTDATA = "test_ntpdatagram.csv"
+TESTDATA = "ntpspy_testdata/test_ntpdatagram.csv"
 
 class TestNTPdatagram(unittest.TestCase):
     @classmethod

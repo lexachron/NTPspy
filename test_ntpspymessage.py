@@ -4,7 +4,7 @@ import csv
 from ntpdatagram import NTPdatagram, NTPmode
 from ntpspymessage import NTPspyMessage, NTPspyFunction
 
-TESTDATA = "test_ntpspymessage.csv"
+TESTDATA = "ntpspy_testdata/test_ntpspymessage.csv"
 
 class TestNTPspymessage(unittest.TestCase):
     @classmethod
