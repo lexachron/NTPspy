@@ -1,6 +1,6 @@
 import unittest
 import csv
-from ntpdatagram import NTPdatagram
+from ntpdatagram import NTPdatagram, NTPmode
 
 TESTDATA = "test_ntpdatagram.csv"
 
@@ -18,6 +18,7 @@ class TestNTPdatagram(unittest.TestCase):
                             ntp_fields[key[4:]] = int(value, 16)
                         else:
                             ntp_fields[key[4:]] = int(value)
+                ntp_fields['mode'] = NTPmode(ntp_fields['mode'])
                 raw_bytes = bytes.fromhex(row["raw_bytes"])
                 cls.test_cases.append((row_num, ntp_fields, raw_bytes))
 

@@ -11,7 +11,7 @@ class NTPdatagram:
     _RANGES = {
         'leap': (0, 3), # 2 bits
         'version': (0, 7), # 3 bits, always 3
-        'mode': (0, 7), # 3 bits, 3: client, 4: server
+#        'mode': (0, 7), # 3 bits, 3: client, 4: server
         'stratum': (0, 255), # 8 bits, unsigned. valid range: 1-15
         'poll': (-128, 127), # 8 bits, signed. log(poll) seconds
         'precision': (-128, 127), # 8 bits, signed. log(precision) seconds
@@ -27,6 +27,7 @@ class NTPdatagram:
         'xmt_whole': (0, 0xFFFFFFFF),
         'xmt_frac': (0, 0xFFFFFFFF),
     }
+    
     def __init__(
         self,
         leap=0,
@@ -50,10 +51,10 @@ class NTPdatagram:
         # range check
         args = locals()
         args.pop('self')
-#        for field, (min_val, max_val) in self._RANGES.items():
-#            value = args[field]
-#            if not (min_val <= value <= max_val):
-#                raise ValueError(f"{field}: {value} outside valid range ({min_val}-{max_val})")
+        for field, (min_val, max_val) in self._RANGES.items():
+            value = args[field]
+            if not (min_val <= value <= max_val):
+                raise ValueError(f"{field}: {value} outside valid range ({min_val}-{max_val})")
 
         for field, value in args.items():
             setattr(self, field, value)
@@ -88,7 +89,7 @@ class NTPdatagram:
         return cls(
             leap=(li_vn_mode >> 6) & 0b11,
             version=(li_vn_mode >> 3) & 0b111,
-            mode=li_vn_mode & 0b111,
+            mode=NTPmode(li_vn_mode & 0b111),
             stratum=unpacked[1],
             poll=unpacked[2],
             precision=unpacked[3],
