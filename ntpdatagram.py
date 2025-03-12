@@ -1,9 +1,14 @@
 import struct
-from enum import Enum
+from enum import IntEnum
 
-class NTPmode(Enum):
+class NTPmode(IntEnum):
+    RESERVE = 0
+    ACTIVE = 1
+    PASSIVE = 2
     CLIENT = 3
     SERVER = 4
+    BROADCAST = 5
+    CONTROL = 6
 
 class NTPdatagram:
     _FORMAT = "!B B b b I I I I I I I I I I I"
@@ -11,7 +16,7 @@ class NTPdatagram:
     _RANGES = {
         'leap': (0, 3), # 2 bits
         'version': (0, 7), # 3 bits, always 3
-#        'mode': (0, 7), # 3 bits, 3: client, 4: server
+#        'mode': (0, 7), # 3 bits, 3: client, 4: server # now handled by enum
         'stratum': (0, 255), # 8 bits, unsigned. valid range: 1-15
         'poll': (-128, 127), # 8 bits, signed. log(poll) seconds
         'precision': (-128, 127), # 8 bits, signed. log(precision) seconds
@@ -27,7 +32,7 @@ class NTPdatagram:
         'xmt_whole': (0, 0xFFFFFFFF),
         'xmt_frac': (0, 0xFFFFFFFF),
     }
-    
+
     def __init__(
         self,
         leap=0,

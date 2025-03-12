@@ -1,8 +1,8 @@
 import unittest
 import csv
 
-from ntpdatagram import NTPdatagram
-from ntpspymessage import NTPspyMessage
+from ntpdatagram import NTPdatagram, NTPmode
+from ntpspymessage import NTPspyMessage, NTPspyFunction
 
 TESTDATA = "test_ntpspymessage.csv"
 
@@ -20,6 +20,7 @@ class TestNTPspymessage(unittest.TestCase):
                         spy_fields[key[4:]] = int(value, base)
                     elif key.startswith("ntp."):
                         ntp_fields[key[4:]] = int(value, base)
+                spy_fields['function'] = NTPspyFunction(spy_fields['function'])
                 cls.test_cases.append((row_num, spy_fields, ntp_fields))
 
     def test_from_ntp(self) -> NTPspyMessage:

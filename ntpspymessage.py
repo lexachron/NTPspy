@@ -1,7 +1,7 @@
-from enum import Enum
+from enum import IntEnum
 from ntpdatagram import NTPdatagram
 
-class NTPspyFunction(Enum):
+class NTPspyFunction(IntEnum):
     PROBE = 0
     XFER = 1
     CHECK = 2
@@ -12,7 +12,7 @@ class NTPspyFunction(Enum):
 class NTPspyMessage:
     def __init__(self,
                  status=0,
-                 function=0,
+                 function=NTPspyFunction.PROBE,
                  version=1,
                  magic=0,
                  session_id=0,
@@ -47,7 +47,7 @@ class NTPspyMessage:
     def from_ntp(cls, ntp: NTPdatagram):
         return cls(
             status=ntp.leap,
-            function=ntp.poll,
+            function=NTPspyFunction(ntp.poll),
             version=ntp.precision,
             magic=ntp.rootdelay,
             session_id=ntp.refid,
@@ -60,7 +60,7 @@ class NTPspyMessage:
         if ntp is None:
             ntp = NTPdatagram()
         ntp.leap = self.status
-        ntp.poll = self.function
+        ntp.poll = self.function.value
         ntp.precision = self.version
         ntp.rootdelay = self.magic
         ntp.refid = self.session_id
