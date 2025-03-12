@@ -1,0 +1,5 @@
+ntpspy_testdata/
+venv/
+files/
+*.pyc
+*.csv
