@@ -1,4 +1,11 @@
+from enum import Enum
 from ntpdatagram import NTPdatagram
+
+class NTPspyFunction(Enum):
+    PROBE = 0
+    XFER = 1
+    CHECK = 2
+    RENAME = 3
 
 # NTPspy messages are encapsulated within standard NTP datagrams
 
