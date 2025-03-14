@@ -7,6 +7,12 @@ class NTPspyFunction(IntEnum):
     CHECK = 2
     RENAME = 3
 
+class NTPspyStatus(IntEnum):
+    NORMAL = 0
+    FIRST = 1
+    LAST = 2
+    ERROR = 3
+
 # NTPspy messages are encapsulated within standard NTP datagrams
 
 class NTPspyMessage:

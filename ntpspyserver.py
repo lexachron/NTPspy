@@ -4,7 +4,7 @@ import logging
 import sys
 
 from ntpdatagram import NTPdatagram, NTPmode
-from ntpspymessage import NTPspyMessage, NTPspyFunction
+from ntpspymessage import NTPspyMessage, NTPspyFunction, NTPspyStatus
 # from storageprovider import FileStorageProvider # TODO
 # from timestampgen import TimestampGenerator # TODO
 
@@ -105,8 +105,12 @@ class NTPspyServer(asyncio.DatagramProtocol):
         reply = msg
         reply.version = self.version
         if self.killswitch:
-            reply.status = 3
+            reply.status = NTPspyStatus.ERROR
         return reply
+    
+    def function_transfer(self, msg: NTPspyMessage) -> NTPspyMessage:
+        """handle file transfer"""
+        pass # TODO
 
     def handle_ntpspy_message(self, msg: NTPspyMessage) -> NTPspyMessage:
         """dispatch NTPspy message to appropriate function handler"""
