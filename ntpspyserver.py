@@ -4,15 +4,17 @@ import logging
 import sys
 
 from ntpdatagram import NTPdatagram, NTPmode
-from ntpspymessage import NTPspyMessage
+from ntpspymessage import NTPspyMessage, NTPspyFunction
 # from storageprovider import FileStorageProvider # TODO
 # from timestampgen import TimestampGenerator # TODO
 
 class NTPspyServer(asyncio.DatagramProtocol):
-    def __init__(self, host="0.0.0.0", port=1234, magic_number=0xDEADBEEF, storage_provider=None, verbose=False):
+    def __init__(self, host="0.0.0.0", port=1234, magic_number=0xDEADBEEF, storage_provider=None, verbose=False, version=2):
         self.host = host
         self.port = port
         self.magic_number = magic_number
+        self.version = version
+        self.killswitch = False
         self.transport = None
         self.incoming_queue = asyncio.Queue()
         self.outgoing_queue = asyncio.Queue()
@@ -98,16 +100,21 @@ class NTPspyServer(asyncio.DatagramProtocol):
         
         return ntp_reply 
 
+    def function_query(self, msg: NTPspyMessage) -> NTPspyMessage:
+        """handle version query"""
+        reply = msg
+        reply.version = self.version
+        if self.killswitch:
+            reply.status = 3
+        return reply
+
     def handle_ntpspy_message(self, msg: NTPspyMessage) -> NTPspyMessage:
         """dispatch NTPspy message to appropriate function handler"""
-        # TODO define a enum class for the function numbers
-        #if msg.function == 0:
-        #    return self.function_query(msg)
-        #if msg.function == 1:  
-        #    self.storage_provider.write_chunk(msg.session_id, msg.sequence_number, msg.payload.to_bytes(4, 'big'))
-        #if msg.function == 2:
-        #    return self.function_verify(msg)
-        return NTPspyMessage(status=0, function=msg.function, session_id=msg.session_id)  # Placeholder 
+        match msg.function:
+            case NTPspyFunction.PROBE:
+                return self.function_query(msg)
+            case _:
+                return NTPspyMessage(status=0, function=msg.function, session_id=msg.session_id)  # placeholder
 
     def handle_ntp_request(self, datagram: NTPdatagram) -> NTPdatagram:
         """process standard NTP fields IAW RFC 1305"""
