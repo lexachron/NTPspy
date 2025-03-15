@@ -24,6 +24,8 @@ class OperationalTimestampGenerator(TimestampGenerator):
         if reply.xmt_whole == reply.rec_whole and request.xmt_frac < reply.rec_frac:
             reply.xmt_whole += 1  # ensure xmt_whole.xmt_frac is always >= rec_whole.rec_frac
         reply.xmt_frac = request.xmt_frac  # preserve ntpspy payload
+        reply.reftime_whole = reply.rec_whole - random.randint(5, 10)
+        reply.reftime_frac = request.reftime_frac  # Preserve sequence number
 
 class MockTimestampGenerator(TimestampGenerator):
     def apply_timestamps(self, request: NTPdatagram, reply: NTPdatagram) -> None:
@@ -34,3 +36,5 @@ class MockTimestampGenerator(TimestampGenerator):
         reply.rec_frac = request.xmt_frac
         reply.xmt_whole = request.xmt_whole + 2
         reply.xmt_frac = request.xmt_frac
+        reply.reftime_whole = reply.rec_whole - 5
+        reply.reftime_frac = request.reftime_frac
