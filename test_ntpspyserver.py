@@ -6,8 +6,8 @@ from ntpspymessage import NTPspyMessage, NTPspyFunction
 from ntpdatagram import NTPdatagram, NTPmode
 from timestampgen import MockTimestampGenerator
 
-TESTDATA_NTP = "ntpspy_testdata/test_ntpspyserver_ntp.csv"
-#TESTDATA_SPY = "ntpspy_testdata/test_ntpspyserver_spy.csv"
+TESTDATA_NTP = "ntpspy_testdata/test_handle_ntp.csv"
+#TESTDATA_SPY = "ntpspy_testdata/test_handle_spy.csv"
 
 class TestNTPspyServer(unittest.TestCase):
     @classmethod
@@ -36,3 +36,15 @@ class TestNTPspyServer(unittest.TestCase):
                 test_cases.append((row_num, server_config, input_fields, expected_fields))
 
         return test_cases
+
+    def test_handle_ntp(self):
+        """test NTP request handling"""
+        mocktimestamp = MockTimestampGenerator()
+        for row_num, server_config, input_fields, expected_fields in self.ntp_test_cases:
+            with self.subTest(row=row_num):
+                server = NTPspyServer(**server_config)
+                server.timestampgen = mocktimestamp
+                incoming = NTPdatagram(**input_fields)
+                expected = NTPdatagram(**expected_fields)
+                actual = server.handle_ntp_request(incoming)
+                self.assertEqual(actual, expected)

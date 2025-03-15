@@ -36,5 +36,5 @@ class MockTimestampGenerator(TimestampGenerator):
         reply.rec_frac = request.xmt_frac
         reply.xmt_whole = request.xmt_whole + 2
         reply.xmt_frac = request.xmt_frac
-        reply.reftime_whole = reply.rec_whole - 5
+        reply.reftime_whole = max(request.xmt_whole - 5, 0)
         reply.reftime_frac = request.reftime_frac

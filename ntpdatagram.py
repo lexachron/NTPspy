@@ -113,3 +113,8 @@ class NTPdatagram:
 
     def is_ntpspy(self, magic):
         return self.rootdelay == magic
+    
+    def __eq__(self, other):
+        if not isinstance(other, NTPdatagram):
+            return False
+        return vars(self) == vars(other)

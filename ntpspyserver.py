@@ -10,12 +10,12 @@ from timestampgen import OperationalTimestampGenerator
 # from storageprovider import FileStorageProvider # TODO
 
 class NTPspyServer(asyncio.DatagramProtocol):
-    def __init__(self, host="0.0.0.0", port=1234, magic_number=0xDEADBEEF, storage_provider=None, verbose=False, version=2, timestampgen=None):
+    def __init__(self, host="0.0.0.0", port=1234, magic_number=0xDEADBEEF, storage_provider=None, verbose=False, version=2, timestampgen=None, killswitch=False):
         self.host = host
         self.port = port
         self.magic_number = magic_number
         self.version = version
-        self.killswitch = False
+        self.killswitch = killswitch
         self.transport = None
         self.incoming_queue = asyncio.Queue()
         self.outgoing_queue = asyncio.Queue()
@@ -129,8 +129,8 @@ class NTPspyServer(asyncio.DatagramProtocol):
         reply.stratum = 15
         reply.poll = 0  # 2^0 = 1 second
         reply.precision = -5  # ~50ms
-        reply.rootdelay = 0x10000  # ~1 second
-        reply.rootdispersion = 0x10000
+        reply.rootdelay = 0x1000  # ~1 second
+        reply.rootdispersion = 0x1000
         reply.refid = 0x4C4F434C  # 'LOCL' = "undisciplined local clock"
         self.timestampgen.apply_timestamps(datagram, reply)
         return reply  
