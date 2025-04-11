@@ -1,11 +1,15 @@
 from enum import IntEnum
+from re import X
 from ntpdatagram import NTPdatagram
 
 class NTPspyFunction(IntEnum):
     PROBE = 0
-    XFER = 1
-    CHECK = 2
-    RENAME = 3
+    XFER_DATA = 1
+    CHECK_DATA = 2
+    XFER_TEXT = 3
+    CHECK_TEXT = 4
+    RENAME = 5
+    ABORT = 9
 
 class NTPspyStatus(IntEnum):
     NORMAL = 0
@@ -31,10 +35,6 @@ class NTPspyMessage:
             # 2: last chunk of this session
             # 3: fatal error, abort session
         self.function = function # ntp.poll
-            # 0: version probe
-            # 1: file transfer
-            # 2: checksum verification # TODO
-            # 3: file rename # TODO
         self.version = version #ntp.precision
             # ntpspy protocol version, valid range 1-15
         self.magic = magic # ntp.rootdelay
@@ -71,6 +71,11 @@ class NTPspyMessage:
         ntp.rootdelay = self.magic
         ntp.refid = self.session_id
         ntp.reftime_frac = self.sequence_number
-        ntp.xmt_frac = self.payload
+        if isinstance(self.payload, bytes):
+            if len(self.payload) > 4:
+                raise ValueError("Payload length exceeds 4 bytes.")
+            ntp.xmt_frac = int.from_bytes(self.payload.ljust(4, b'\x00'), byteorder='big')
+        else:
+            ntp.xmt_frac = int(self.payload)
         ntp.rootdispersion = self.length
         return ntp
