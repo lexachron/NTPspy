@@ -112,7 +112,7 @@ class MemoryStorageProvider(StorageProvider):
 
     def list_sessions(self):
         for session_id in self.sessions:
-            print(f"{session_id:08x}:{self.get_filename(session_id)}:{len(self.sessions[session_id].getbuffer())}")
+            print(f"{session_id:08x}:{len(self.sessions[session_id].getbuffer())}")
 
     def print_file(self, filename: str):
         if filename not in self.files:
