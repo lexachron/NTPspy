@@ -96,7 +96,7 @@ class MemoryStorageProvider(StorageProvider):
         buffer = self.sessions[session_id]
         buffer.seek(0)
         data = buffer.read()
-        print(binascii.hexlify(data).decode('utf-8'))
+        #print(binascii.hexlify(data).decode('utf-8'))
         print(data)
     
     def get_filename(self, session_id: int):
@@ -120,7 +120,7 @@ class MemoryStorageProvider(StorageProvider):
         buffer = self.files[filename]
         buffer.seek(0)
         data = buffer.read()
-        print(binascii.hexlify(data).decode('utf-8'))
+        #print(binascii.hexlify(data).decode('utf-8'))
         print(data)
 
     def print_files(self) -> None:

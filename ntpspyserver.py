@@ -3,6 +3,7 @@ import threading
 import logging
 import sys
 import copy
+import signal
 
 from ntpdatagram import NTPdatagram, NTPmode
 from ntpspymessage import NTPspyMessage, NTPspyFunction, NTPspyStatus
@@ -19,7 +20,7 @@ logconsole.setLevel(logging.INFO)
 logconsole.setFormatter(formatter)
 
 class NTPspyServer(asyncio.DatagramProtocol):
-    def __init__(self, host="0.0.0.0", port=1234, magic_number=0xDEADBEEF, storage_provider=None, verbose=0, version=2, timestampgen=None, allow_overwrite=False):
+    def __init__(self, path, host="0.0.0.0", port=1234, magic_number=0xDEADBEEF, storage_provider=None, verbose=False, version=2, timestampgen=None, allow_overwrite=False):
         self.host = host
         self.port = port
         self.magic_number = magic_number
@@ -31,15 +32,14 @@ class NTPspyServer(asyncio.DatagramProtocol):
         self.outgoing_queue = asyncio.Queue()
         self.storage_provider = storage_provider or MemoryStorageProvider()
         self.storage_provider.init()
-        self.running = False
+        self.running = True if not sys.flags.interactive else False
         self.loop = None
-
+        self.path = path or "."
         self.logger = logging.getLogger(type(self).__name__)
         self.logger.setLevel(logging.DEBUG)
         self.logger.addHandler(logconsole)
-        
-        self.interactive = sys.flags.interactive
         self.timestampgen = timestampgen or OperationalTimestampGenerator()
+        self.set_loglevel(logging.DEBUG if verbose else logging.INFO)
 
     def handle_packet(self, ntp):
         """process all packets as NTP, then as NTPspy only if magic num detected"""
@@ -230,8 +230,29 @@ class NTPspyServer(asyncio.DatagramProtocol):
         loop = asyncio.get_running_loop()
         await loop.create_datagram_endpoint(lambda: self, local_addr=(self.host, self.port))
         asyncio.create_task(self._transmit_loop())
-        self.logger.info(f"Server started on {self.host}:{self.port}")
         asyncio.create_task(self._dispatch_loop())
+        self.logger.info(f"Server started on {self.host}:{self.port}")
+
+        self.stop_event = loop.create_future()
+        def shutdown():
+            self.logger.info("Received termination signal.")
+            if not self.stop_event.done():
+                self.stop_event.set_result(None)  # Resolve the Future to unblock
+
+
+        if threading.current_thread() is threading.main_thread():
+            try:
+                signal.signal(signal.SIGINT, lambda sig, frame: shutdown())
+                signal.signal(signal.SIGTERM, lambda sig, frame: shutdown())
+            except ValueError:
+                self.logger.warning("Signal handling is not supported in this context.")
+
+        try:
+            await self.stop_event
+        except asyncio.CancelledError:
+            self.logger.info("Server shutting down.")
+        finally:
+            self.logger.info("Shutdown complete.")
 
     def connection_made(self, transport):
         self.transport = transport
@@ -273,9 +294,14 @@ class NTPspyServer(asyncio.DatagramProtocol):
         print(f"Incoming: {self.incoming_queue.qsize()} packets")
         print(f"Outgoing: {self.outgoing_queue.qsize()} packets")
 
+    def set_loglevel(self, level):
+        self.logger.setLevel(level)
+        for handler in self.logger.handlers:
+            handler.setLevel(level)
+
 if __name__ == "__main__":
     #logging.basicConfig(level=logging.DEBUG)
-    server = NTPspyServer()
+    server = NTPspyServer(".")
     server.start_background()
     server.running = True
     #client.close()

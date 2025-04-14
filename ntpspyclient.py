@@ -14,19 +14,19 @@ logconsole.setLevel(logging.DEBUG)
 logconsole.setFormatter(formatter)
 
 class NTPspyClient:
-    def __init__(self, remote="127.0.0.1", port=1234, magic=0xDEADBEEF, timeout=5, verbose=False, version=2, session_id=None, interval=0):
+    def __init__(self, remote="127.0.0.1", port=1234, magic_number=0xDEADBEEF, timeout=5, verbose=False, version=2, session_id=None, interval=0):
         self.verbose = verbose
         self.server_addr = (remote, port)
         self.timeout = timeout
-        self.magic = magic
+        self.magic_number = magic_number
         self.version = version
         self.session_id = session_id
         self.max_retry = 3
         self.interval = interval # delay between transmissions (seconds)
 
         self.logger = logging.getLogger(type(self).__name__)
-        self.logger.setLevel(logging.DEBUG)
         self.logger.addHandler(logconsole)
+        self.set_loglevel(logging.DEBUG if verbose else logging.INFO)
 
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.settimeout(self.timeout)
@@ -51,7 +51,7 @@ class NTPspyClient:
         if not reply:
             self.logger.error("No response from server.")
             return None
-        if reply.is_ntpspy(self.magic):
+        if reply.is_ntpspy(self.magic_number):
             return NTPspyMessage.from_ntp(reply)
         else:
             self.logger.error("Received non-NTPspy response.")
@@ -62,7 +62,7 @@ class NTPspyClient:
         self.logger.info("Client socket closed.")
 
     def transfer_file(self, filepath: str):
-        """upload local file to server"""
+        """upload local file to server as data block"""
         self.logger.info(f"Reading transfer source: {filepath}")
         try:
             with open(filepath, 'rb') as f:
@@ -74,6 +74,7 @@ class NTPspyClient:
         self.transfer_data(data, filename)
 
     def transfer_data(self, data: bytes, filename: str):
+        """upload data block to server in chunks"""
         chunk_size = 4 # bytes
         length = len(data)
         chunkcount = length // chunk_size
@@ -93,7 +94,7 @@ class NTPspyClient:
         # 2) request new session ID if not manually assigned
         if not self.session_id:
             self.logger.info("Requesting new session ID.")
-            session_request = NTPspyMessage(function=NTPspyFunction.XFER_DATA, magic=self.magic, session_id=0)
+            session_request = NTPspyMessage(function=NTPspyFunction.XFER_DATA, magic=self.magic_number, session_id=0)
             response = self.send_ntpspy(session_request)
             if response.status == NTPspyStatus.ERROR:
                 self.logger.error("Server in error state.")
@@ -143,8 +144,8 @@ class NTPspyClient:
 
     def probe(self):
         """query server for NTPspy presence and version"""
-        self.logger.info(f"Sending probe message to the server. Magic: 0x{self.magic:X}, Version: {self.version}")
-        msg = NTPspyMessage(status=1, function=NTPspyFunction.PROBE, magic=self.magic, version=self.version)
+        self.logger.info(f"Sending probe message to the server. Magic: 0x{self.magic_number:X}, Version: {self.version}")
+        msg = NTPspyMessage(status=1, function=NTPspyFunction.PROBE, magic=self.magic_number, version=self.version)
         response = self.send_ntpspy(msg)
         if not response:
             self.logger.error("Probe failed.")
@@ -159,11 +160,12 @@ class NTPspyClient:
         return response
 
     def transfer_chunk(self, session_id: int, sequence: int, data: bytes, length: int, chunkcount: int, type=NTPspyStatus.NORMAL):
+        """upload single data chunk to server"""
         for attempt in range(self.max_retry):
             msg = NTPspyMessage(
                 status=type,
                 function=NTPspyFunction.XFER_DATA,
-                magic=self.magic,
+                magic=self.magic_number,
                 session_id=session_id,
                 sequence_number=sequence,
                 payload=data[:length],
@@ -192,7 +194,7 @@ class NTPspyClient:
         """verify file integrity"""
         request = NTPspyMessage(
             function=NTPspyFunction.CHECK_DATA,
-            magic=self.magic,
+            magic=self.magic_number,
             session_id=session_id,
             payload=expected_crc.to_bytes(4, 'big')
         )
@@ -212,11 +214,12 @@ class NTPspyClient:
         return True
 
     def transfer_text(self, session_id: int, sequence: int, data: bytes, length: int, chunkcount:int):
+        """send filename to server in chunks"""
         for attempt in range(self.max_retry):
             msg = NTPspyMessage(
                 status=NTPspyStatus.NORMAL,
                 function=NTPspyFunction.XFER_TEXT,
-                magic=self.magic,
+                magic=self.magic_number,
                 session_id=session_id,
                 sequence_number=sequence,
                 payload=data[:length],
@@ -245,7 +248,7 @@ class NTPspyClient:
         """verify filename integrity"""
         request = NTPspyMessage(
             function=NTPspyFunction.CHECK_TEXT,
-            magic=self.magic,
+            magic=self.magic_number,
             session_id=session_id,
             payload=expected_crc.to_bytes(4, 'big')
         )
@@ -268,7 +271,7 @@ class NTPspyClient:
     def rename(self, session_id):
         """instruct server to rename file and finalize session"""
         self.logger.info(f"Sending rename message for session ID: {session_id}")
-        msg = NTPspyMessage(function=NTPspyFunction.RENAME, magic=self.magic, session_id=session_id)
+        msg = NTPspyMessage(function=NTPspyFunction.RENAME, magic=self.magic_number, session_id=session_id)
         response = self.send_ntpspy(msg)
         if not response:
             self.logger.error("Rename failed.")
@@ -286,7 +289,7 @@ class NTPspyClient:
         self.logger.info(f"Sending abort request for session: {session_id}.")
         request = NTPspyMessage(
             function=NTPspyFunction.ABORT,
-            magic=self.magic,
+            magic=self.magic_number,
             session_id=session_id
         )
         response = self.send_ntpspy(request)
