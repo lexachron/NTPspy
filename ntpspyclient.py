@@ -71,8 +71,16 @@ class NTPspyClient:
             self.logger.error(e)
             return False
         filename = filepath.split('/')[-1]
-        self.transfer_data(data, filename)
-
+        try:
+            self.transfer_data(data, filename)
+        except KeyboardInterrupt:
+            self.logger.warning("Transfer interrupted.")
+            if self.session_id:
+                self.logger.info("Sending abort message for session: {self.session_id}")
+                self.abort(self.session_id)
+            return False
+        return True
+    
     def transfer_data(self, data: bytes, filename: str):
         """upload data block to server in chunks"""
         chunk_size = 4 # bytes
