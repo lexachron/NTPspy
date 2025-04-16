@@ -19,7 +19,7 @@ class OperationalTimestampGenerator(TimestampGenerator):
         reply.org_frac = request.xmt_frac
         current_time = time.time() + UNIX_TO_NTP
         reply.rec_whole = int(current_time)
-        reply.rec_frac = int(((current_time % 1) + random.uniform(0.0001, 0.005)) * (2**32))
+        reply.rec_frac = random.randint(0, 2**32 - 1)
         reply.xmt_whole = reply.rec_whole
         if reply.xmt_whole == reply.rec_whole and request.xmt_frac < reply.rec_frac:
             reply.xmt_whole += 1  # ensure xmt_whole.xmt_frac is always >= rec_whole.rec_frac

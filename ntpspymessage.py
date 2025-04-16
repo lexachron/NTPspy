@@ -1,5 +1,4 @@
 from enum import IntEnum
-from re import X
 from ntpdatagram import NTPdatagram
 
 class NTPspyFunction(IntEnum):
@@ -13,8 +12,8 @@ class NTPspyFunction(IntEnum):
 
 class NTPspyStatus(IntEnum):
     NORMAL = 0
-    FIRST = 1
-    LAST = 2
+    SUCCESS = 1
+    FATAL_ERROR = 2
     ERROR = 3
 
 # NTPspy messages are encapsulated within standard NTP datagrams

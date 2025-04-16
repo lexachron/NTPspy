@@ -71,8 +71,16 @@ class NTPspyClient:
             self.logger.error(e)
             return False
         filename = filepath.split('/')[-1]
-        self.transfer_data(data, filename)
-
+        try:
+            self.transfer_data(data, filename)
+        except KeyboardInterrupt:
+            self.logger.warning("Transfer interrupted.")
+            if self.session_id:
+                self.logger.info("Sending abort message for session: {self.session_id}")
+                self.abort(self.session_id)
+            return False
+        return True
+    
     def transfer_data(self, data: bytes, filename: str):
         """upload data block to server in chunks"""
         chunk_size = 4 # bytes
@@ -119,24 +127,25 @@ class NTPspyClient:
         self.verify_data(self.session_id, checksum)
 
         # 5) transfer filename in chunks
-        filename_bytes = filename.encode('utf-8')
-        filename_crc = zlib.crc32(filename_bytes)
-        chunkcount = len(filename_bytes) // chunk_size
-        for sequence, offset in enumerate(range(0, len(filename_bytes), chunk_size)):
-            chunk = filename_bytes[offset:offset + chunk_size]
-            if not self.transfer_text(self.session_id, sequence, chunk, len(chunk), chunkcount):
-                self.logger.error(f"Session {self.session_id} Failed to transfer chunk {sequence}. Aborting transfer.")
-                self.abort(self.session_id)
-                return False
-            if self.interval > 0:
-                time.sleep(self.interval)
-        self.logger.info(f"Session: {self.session_id} - Text transfer completed")
+        if filename:
+            filename_bytes = filename.encode()
+            filename_crc = zlib.crc32(filename_bytes)
+            chunkcount = len(filename_bytes) // chunk_size
+            for sequence, offset in enumerate(range(0, len(filename_bytes), chunk_size)):
+                chunk = filename_bytes[offset:offset + chunk_size]
+                if not self.transfer_text(self.session_id, sequence, chunk, len(chunk), chunkcount):
+                    self.logger.error(f"Session {self.session_id} Failed to transfer chunk {sequence}. Aborting transfer.")
+                    self.abort(self.session_id)
+                    return False
+                if self.interval > 0:
+                    time.sleep(self.interval)
+            self.logger.info(f"Session: {self.session_id} - Text transfer completed")
 
-        # 6) verify filename integrity
-        if not self.verify_text(self.session_id, filename_crc):
-            self.logger.error("Filename verification failed. Aborting transfer.")
-            return False
-        self.logger.info("Filename verification passed.")            
+            # 6) verify filename integrity
+            if not self.verify_text(self.session_id, filename_crc):
+                self.logger.error("Filename verification failed. Aborting transfer.")
+                return False
+            self.logger.info("Filename verification passed.")            
 
         # 7) finalize session
         self.rename(self.session_id)
