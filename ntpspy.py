@@ -43,7 +43,7 @@ if __name__ == "__main__":
         try:
             port = int(port_string) if port_string else args.p 
         except ValueError:
-            logger.error("Invalid port")
+            logger.error(f"Invalid port: '{port_string}'")
             exit(1)
         hostname = hostname or None
     else:
@@ -55,7 +55,13 @@ if __name__ == "__main__":
 
     # server mode
     if args.s:
-        logger.debug("Starting NTPspy in server mode.")
+        if args.remote or args.files:
+            logger.error("Server mode does not accept remote host or filenames")
+            parser.print_help()
+            exit(1)
+        logger.info("Starting NTPspy in server mode.")
+        if args.s == DEFAULT_PATH:
+            logger.warning(f"Storing files in default path: '{DEFAULT_PATH}'")
         server = NTPspyServer(
             path = args.s, 
             port = args.p, 
@@ -78,19 +84,38 @@ if __name__ == "__main__":
         ## probe only
         if args.q:
             client.probe()
-        ## transfer named file
-        elif args.filename and args.filename != "-":
-            client.transfer_file(filepath = args.filename)
-        ## transfer anonymous hunk of data
-        else: 
+            exit(0)
+
+        ## process files
+        if args.files:
+            for filename in args.files:
+                if filename != "-":
+                    client.transfer_file(filename)
+                else:
+                    data = sys.stdin.buffer.read()
+                    if not data:
+                        logger.warning("No data to send. Skipping.")
+                        continue
+                    logger.debug(f"Read {len(data)} bytes of unnamed data")
+                    client.transfer_data(data, None)
+        
+        ## read piped input
+        elif not sys.stdin.isatty():
             data = sys.stdin.buffer.read()
             if not data:
-                logger.error("No data to send")
+                logger.error("Empty pipe")
                 exit(1)
             logger.debug(f"Read {len(data)} bytes of unnamed data")
             client.transfer_data(data, None)
 
-    # usage
+        ## no filenames or pipe input
+        else:
+            logger.error("No filenames or piped data detected.")
+            parser.print_help()
+            exit(1)
+
+    # no remote and not -s
     else:
+        logger.error("Remote host required in client mode.")
         parser.print_help()
         exit(1)
