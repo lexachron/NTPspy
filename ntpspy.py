@@ -29,7 +29,7 @@ if __name__ == "__main__":
     parser.add_argument("-q", action="store_true", help="Query server version and exit (client only)")
     parser.add_argument("-t", type=int, default=0, help="Minimum interval (sec) (client only)")
     parser.add_argument("remote", type=str, nargs='?', help="Remote host (client only)")
-    parser.add_argument("files", type=str, nargs='*', help="Filename(s) to transfer (client only)")
+    parser.add_argument("filename", type=str, nargs='?', help="Filename to transfer (client only)")
     args = parser.parse_args()
 
     levels = [logging.WARNING, logging.INFO, logging.DEBUG]
