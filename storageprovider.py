@@ -113,7 +113,7 @@ class DiskStorageProvider(StorageProvider):
                 self.sessions[session_id] = {"data": f"{session_id:08x}.dat", "text": f"{session_id:08x}.txt"}
                 for buffer_type in [BufferType.DATA, BufferType.TEXT]:
                     file_path = os.path.join(self.base_path, self.sessions[session_id][buffer_type.value])
-                    with open(file_path, "wb") as f:
+                    with open(file_path, "wb"):
                         pass # `touch file_path`
                 
                 self.logger.info(f"Allocated session ID: {session_id:x}")

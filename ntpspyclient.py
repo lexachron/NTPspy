@@ -76,7 +76,7 @@ class NTPspyClient:
         except KeyboardInterrupt:
             self.logger.warning("Transfer interrupted.")
             if self.session_id:
-                self.logger.info("Sending abort message for session: {self.session_id}")
+                self.logger.info(f"Sending abort message for session: {self.session_id}")
                 self.abort(self.session_id)
             return False
         return True
