@@ -22,6 +22,7 @@ class NTPspyClient:
         self.version = version
         self.session_id = session_id
         self.max_retry = 3
+        self.progress_interval = 10 # seconds, between progress messages
         self.interval = interval # delay between transmissions (seconds)
 
         self.logger = logging.getLogger(type(self).__name__)
@@ -84,9 +85,8 @@ class NTPspyClient:
     def transfer_data(self, data: bytes, filename: str):
         """upload data block to server in chunks"""
         chunk_size = 4 # bytes
-        length = len(data)
-        chunkcount = length // chunk_size
-
+        start_time = time.time()
+        last_progress = start_time
         # 1) verify presence of NTPspy and matching version
         probe_response = self.probe()
         if not probe_response:
@@ -114,10 +114,10 @@ class NTPspyClient:
         if filename:
             filename_bytes = filename.encode()
             filename_crc = zlib.crc32(filename_bytes)
-            chunkcount = len(filename_bytes) // chunk_size
+            chunk_count = len(filename_bytes) // chunk_size
             for sequence, offset in enumerate(range(0, len(filename_bytes), chunk_size)):
                 chunk = filename_bytes[offset:offset + chunk_size]
-                if not self.transfer_text(self.session_id, sequence, chunk, len(chunk), chunkcount):
+                if not self.transfer_text(self.session_id, sequence, chunk, len(chunk), chunk_count):
                     self.logger.error(f"Session {self.session_id} Failed to transfer chunk {sequence}. Aborting transfer.")
                     self.abort(self.session_id)
                     return False
@@ -132,16 +132,22 @@ class NTPspyClient:
             self.logger.info("Filename verification passed.")            
 
         # 4) transfer data in chunks
+        length = len(data)
+        chunk_count = length // chunk_size
         self.logger.info(f"Session: {self.session_id} - Transferring {length} bytes with name: '{filename}'")
         for sequence, offset in enumerate(range(0, len(data), chunk_size)):
             chunk = data[offset:offset + chunk_size]
-            if not self.transfer_chunk(self.session_id, sequence, chunk, len(chunk), chunkcount):
+            if not self.transfer_chunk(self.session_id, sequence, chunk, len(chunk), chunk_count):
                 self.logger.error(f"Session {self.session_id} Failed to transfer chunk {sequence}. Aborting transfer.")
                 self.abort(self.session_id)
                 return False
             if self.interval > 0:
                 time.sleep(self.interval)
-        self.logger.info(f"Session: {self.session_id} - Data transfer completed")
+            current_time = time.time()
+            if current_time - last_progress >= self.progress_interval:
+                progress = (sequence + 1) / chunk_count * 100
+                self.logger.info(f"Session: {self.session_id} - Progress: {progress:.2f}% ({sequence + 1}/{chunk_count})")
+                last_progress = current_time
 
         # 5) verify data integrity
         checksum = zlib.crc32(data)
@@ -149,7 +155,14 @@ class NTPspyClient:
 
         # 6) finalize session
         self.rename(self.session_id)
+
+        current_time = time.time()
+        total_transfer_size = len(data) + (len(filename) if filename else 0)
+        elapsed_time = current_time - start_time
+        transfer_rate = total_transfer_size / elapsed_time
+        self.logger.info(f"Session complete - {_readable_size(total_transfer_size)} in {elapsed_time:.2f} secs ({transfer_rate:.2f} B/s)")
         self.session_id = None
+        return True
 
     def probe(self):
         """query server for NTPspy presence and version"""
@@ -185,17 +198,10 @@ class NTPspyClient:
             if not response:
                 self.logger.warning(f"No response from server for chunk {sequence}. Retrying...")
                 continue  # Retry on no response
-            if response.status == NTPspyStatus.ERROR:
+            if response.status == NTPspyStatus.FATAL_ERROR:
                 self.logger.error(f"Server returned fatal error for chunk {sequence}. Aborting transfer.")
                 return False  # Abort on server error
-            #response_bytes = bytes(response.payload)
-            #if response_bytes != data[:length]:
-            #    self.logger.warning(f"Payload mismatch for chunk {sequence}. Expected: {data[:length]}, Received: {response_bytes}.")
-            #    continue  # Retry on payload mismatch
-
-            self.logger.debug(f"Session: {session_id} Chunk: {sequence} transferred {length} bytes")
             return True
-
         self.logger.error(f"Failed to transfer chunk {sequence} for session {session_id}.")
         return False
 
@@ -317,6 +323,13 @@ class NTPspyClient:
         self.logger.setLevel(level)
         for handler in self.logger.handlers:
             handler.setLevel(level)
+
+def _readable_size(size: int) -> str:
+    for unit in ['B', 'KB', 'MB']:
+        if size < 1024:
+            return f"{size:.2f} {unit}"
+        size /= 1024
+    return f"{size:.2f} GB"
 
 if __name__ == "__main__":
     client = NTPspyClient()
