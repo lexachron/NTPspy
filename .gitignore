@@ -3,3 +3,5 @@ venv/
 files/
 *.pyc
 *.csv
+incoming/
+outgoing/
