@@ -19,18 +19,22 @@ logconsole.setLevel(logging.DEBUG)
 logconsole.setFormatter(formatter)
 
 class NTPspyServer(asyncio.DatagramProtocol):
-    def __init__(self, path, host=None, port=None, magic_number=None, storage_provider=None, verbose=0, version=2, timestampgen=None, allow_overwrite=False):
+    def __init__(self, path=None, host=None, port=None, magic_number=None, storage_provider=None, verbose=0, version=2, timestampgen=None, allow_overwrite=False):
         self.host = host or "0.0.0.0"
         self.port = port or 1234
         self.magic_number = magic_number or 0xdeadbeef
         self.path = path or "."
         self.version = version
-        self.killswitch = False
+        # temporarily reject all new sessions, cause client to abort current sessions
+        self.blocked = False
+        # if overwrite disabled, storage provider either silently renames or fails on name collision
         self.allow_overwrite = allow_overwrite
         self.transport = None
 
+        # automatic processing incoming/outgoing message queues
         self.running = True if not sys.flags.interactive else False
         self.loop = None
+
         self.logger = logging.getLogger(type(self).__name__)
         self.logger.addHandler(logconsole)
         self.storage_provider = storage_provider or DiskStorageProvider(path)
@@ -62,7 +66,7 @@ class NTPspyServer(asyncio.DatagramProtocol):
 
     def handle_ntpspy_message(self, msg: NTPspyMessage) -> NTPspyMessage:
         """dispatch NTPspy message to appropriate function handler"""
-        if self.killswitch:
+        if self.blocked:
             reply = msg
             reply.status = NTPspyStatus.ERROR
             return reply
@@ -108,7 +112,6 @@ class NTPspyServer(asyncio.DatagramProtocol):
             except ValueError:
                 reply.status = NTPspyStatus.ERROR
                 self.logger.error(f"Failed to write data to session ID: {msg.session_id}")
-
         return reply
 
     def verify(self, msg: NTPspyMessage, type: BufferType) -> NTPspyMessage:
@@ -163,7 +166,6 @@ class NTPspyServer(asyncio.DatagramProtocol):
         except ValueError:
             reply.status = NTPspyStatus.ERROR
             self.logger.error(f"Failed to abort session ID: {msg.session_id:x}")
-
         return reply
 
     def start_background(self):
@@ -178,7 +180,7 @@ class NTPspyServer(asyncio.DatagramProtocol):
         self.loop.run_forever()
 
     def stop(self):
-        """Shutdown background event loop."""
+        """shutdown background event loop"""
         if self.loop:
             # resolve stop_event future if it exists and not already done
             if hasattr(self, "stop_event") and not self.stop_event.done():
@@ -190,7 +192,6 @@ class NTPspyServer(asyncio.DatagramProtocol):
             if self.transport:
                 self.logger.debug("Closing transport...")
                 self.loop.call_soon_threadsafe(self.transport.close)
-
             # allow event loop to process stop_event resolution
             self.loop.call_soon_threadsafe(self._cancel_tasks)
 
@@ -296,8 +297,9 @@ class NTPspyServer(asyncio.DatagramProtocol):
 
 
 if __name__ == "__main__":
-    server = NTPspyServer(".")
+    storage = MemoryStorageProvider()
+    server = NTPspyServer(storage_provider=storage, verbose=3)
     server.start_background()
     server.running = True
-    server.set_verbose(1)
+
     
