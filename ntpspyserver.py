@@ -70,13 +70,13 @@ class NTPspyServer(asyncio.DatagramProtocol):
             case NTPspyFunction.PROBE:
                 return self.probe(msg)
             case NTPspyFunction.XFER_DATA:
-                return self.transfer_data(msg)
+                return self.transfer(msg, BufferType.DATA)
             case NTPspyFunction.CHECK_DATA:
-                return self.verify_data(msg)
+                return self.verify(msg, BufferType.DATA)
             case NTPspyFunction.XFER_TEXT:
-                return self.transfer_text(msg)
+                return self.transfer(msg, BufferType.TEXT)
             case NTPspyFunction.CHECK_TEXT:
-                return self.verify_text(msg)
+                return self.verify(msg, BufferType.TEXT)
             case NTPspyFunction.RENAME:
                 return self.rename(msg)
             case NTPspyFunction.ABORT:
@@ -91,83 +91,45 @@ class NTPspyServer(asyncio.DatagramProtocol):
         reply.version = self.version
         return reply
     
-    def transfer_data(self, msg: NTPspyMessage) -> NTPspyMessage:
-        """handle file transfer"""
+    def transfer(self, msg: NTPspyMessage, type: BufferType) -> NTPspyMessage:
+        """handle data or text transfer"""
         reply = msg
         if msg.session_id == 0:
             # allocate new session
-            session_id = self.storage_provider.allocate_session()
-            reply.session_id = session_id
-            self.logger.info(f"Sending new session ID: {session_id:x}")
+            new_session = self.storage_provider.allocate_session()
+            reply.session_id = new_session
+            self.logger.info(f"Sending new session ID: {new_session:x}")
         else:
             # write data to existing session
-            data_bytes = msg.payload.to_bytes(4, byteorder='big')[:msg.length]
-            self.logger.debug(f"Writing data to session ID: {msg.session_id}, seq: {msg.sequence_number}, len: {msg.length}, data: {data_bytes}")
+            data = msg.payload.to_bytes(4, byteorder='big')[:msg.length]
+            self.logger.debug(f"Received {len(data)} bytes {type.value} for session ID: {msg.session_id:x}")
             try:
-                self.storage_provider.write(BufferType.DATA, msg.session_id, msg.sequence_number, data_bytes)
-                self.logger.debug(f"Data written to session ID: {msg.session_id}, sequence: {msg.sequence_number}")
+                self.storage_provider.write(type, msg.session_id, msg.sequence_number, data)
             except ValueError:
                 reply.status = NTPspyStatus.ERROR
                 self.logger.error(f"Failed to write data to session ID: {msg.session_id}")
 
         return reply
 
-    def verify_data(self, msg: NTPspyMessage) -> NTPspyMessage:
-        """handle checksum verification"""
-        self.logger.info(f"Verifying data for session ID: {msg.session_id}")
+    def verify(self, msg: NTPspyMessage, type: BufferType) -> NTPspyMessage:
+        """handle integrity check"""
+        self.logger.info(f"Received {type.value} integrity check for session ID: {msg.session_id:x}")
         reply = msg
         try:
-            checksum = self.storage_provider.check(BufferType.DATA, msg.session_id)
+            checksum = self.storage_provider.check(type, msg.session_id)
             if checksum != msg.payload:
                 reply.status = NTPspyStatus.ERROR
-                self.logger.warning(f"CRC failed for session: {msg.session_id}, expected: {msg.payload:x}, actual: {checksum:x}")
+                self.logger.warning(f"CRC failed for session: {msg.session_id} {type.value}, expected: {msg.payload:x}, actual: {checksum:x}")
             reply.payload = checksum
-            self.logger.info(f"CRC match for session: {msg.session_id}: {checksum:x}")
+            self.logger.info(f"CRC match for session: {msg.session_id} {type.value}")
         except ValueError:
-            reply.status = NTPspyStatus.ERROR
+            reply.status = NTPspyStatus.FATAL_ERROR
             self.logger.error(f"Failed to verify data for session ID: {msg.session_id}")
             reply.payload = reply.length = 0
         return reply
 
-    def transfer_text(self, msg: NTPspyMessage) -> NTPspyMessage:
-        """handle text transfer"""
-        self.logger.debug(f"Handling text transfer for session ID: {msg.session_id}")
-        reply = msg
-        if msg.session_id == 0:  # invalid session ID
-            reply.status = NTPspyStatus.ERROR
-            self.logger.error("Invalid session ID for text transfer")
-            return reply
-        else:
-            # write text to existing session
-            try:
-                text_bytes = msg.payload.to_bytes(4, byteorder='big')[:msg.length]
-                self.storage_provider.write(BufferType.TEXT, msg.session_id, msg.sequence_number, text_bytes)
-                self.logger.debug(f"Text written to session ID: {msg.session_id:x}, sequence: {msg.sequence_number}")
-            except ValueError:
-                reply.status = NTPspyStatus.ERROR
-                self.logger.error(f"Failed to write text to session ID: {msg.session_id:x}")
-        return reply
-
-    def verify_text(self, msg: NTPspyMessage) -> NTPspyMessage:
-        """handle text verification"""
-        self.logger.info(f"Verifying text for session ID: {msg.session_id:x}")
-        reply = msg
-
-        try:
-            text_checksum = self.storage_provider.check(BufferType.TEXT, msg.session_id)
-            if text_checksum != msg.payload:
-                reply.status = NTPspyStatus.ERROR
-                self.logger.warning(f"CRC failed for session: {msg.session_id}, expected: {text_checksum:x}, actual: {msg.payload:x}")
-            reply.data = text_checksum
-            self.logger.info(f"CRC match for session: {msg.session_id}: {text_checksum:x}")
-        except ValueError:
-            reply.status = NTPspyStatus.ERROR
-            self.logger.error(f"Failed to verify text for session ID: {msg.session_id:x}")
-            reply.data = reply.length = 0
-        return reply
-
     def rename(self, msg: NTPspyMessage) -> NTPspyMessage:
-        """handle file rename"""
+        """handle file rename/session finalization"""
         self.logger.info(f"Received rename request for session: {msg.session_id:x}")
         reply = msg
 
@@ -186,6 +148,7 @@ class NTPspyServer(asyncio.DatagramProtocol):
         return reply
     
     def abort(self, msg: NTPspyMessage) -> NTPspyMessage:
+        """handle session abort request"""
         self.logger.info(f"Received abort for session: {msg.session_id:x}")
         reply = msg
 
@@ -297,9 +260,13 @@ class NTPspyServer(asyncio.DatagramProtocol):
     async def _dispatch_loop(self):
         """process incoming packets automatically (disable in REPL mode)"""
         while True:
-            if self.running:
-                await self.dispatch_one()
-            await asyncio.sleep(0.01)
+            try:
+                if self.running:
+                    await self.dispatch_one()
+                await asyncio.sleep(0.01)
+            except Exception as e:
+                self.logger.error(f"Unhandled exception: {e}", exc_info=True)
+                break
 
     async def dispatch_one(self):
         """process single packet"""
