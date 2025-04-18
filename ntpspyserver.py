@@ -42,16 +42,26 @@ class NTPspyServer(asyncio.DatagramProtocol):
         self.timestampgen = timestampgen or OperationalTimestampGenerator()
         self.set_verbose(verbose)
 
-    def handle_packet(self, ntp):
-        """process all packets as NTP, then as NTPspy only if magic num detected"""
-        ntp_reply = self.handle_ntp_request(ntp)
-        if ntp.is_ntpspy(self.magic_number):
-            spy = NTPspyMessage.from_ntp(ntp)
-            spy_reply = self.handle_ntpspy_message(spy) 
-            ntp_reply = spy_reply.to_ntp(ntp_reply) 
-        return ntp_reply 
+    def handle_datagram(self, datagram, addr):
+        """discard non-ntp traffic, process rest as ntp, then ntpspy if applicable"""
+        client = addr[0]
+        try:
+            ntp_in = NTPdatagram.from_bytes(datagram)
+        except ValueError:
+            self.logger.debug(f"{client}: Dropped non-ntp datagram")
+            return None
+        ntp_out = self.handle_ntp(ntp_in, addr)
+        if ntp_in.is_ntpspy(self.magic_number):
+            try:
+                spy_in = NTPspyMessage.from_ntp(ntp_in)
+            except ValueError:
+                self.logger.error(f"{client}: Invalid NTPspy message")
+            spy_out = self.handle_ntpspy(spy_in, addr)
+            ntp_out = spy_out.to_ntp(ntp_out)
+        return ntp_out
 
-    def handle_ntp_request(self, datagram: NTPdatagram) -> NTPdatagram:
+
+    def handle_ntp(self, datagram: NTPdatagram, addr) -> NTPdatagram:
         """simulate NTP server response, ref: RFC 1305"""
         reply = copy.copy(datagram)
         reply.mode = NTPmode.SERVER
@@ -64,7 +74,7 @@ class NTPspyServer(asyncio.DatagramProtocol):
         self.timestampgen.apply_timestamps(datagram, reply)
         return reply  
 
-    def handle_ntpspy_message(self, msg: NTPspyMessage) -> NTPspyMessage:
+    def handle_ntpspy(self, msg: NTPspyMessage, addr) -> NTPspyMessage:
         """dispatch NTPspy message to appropriate function handler"""
         if self.blocked:
             reply = msg
@@ -196,7 +206,7 @@ class NTPspyServer(asyncio.DatagramProtocol):
             self.loop.call_soon_threadsafe(self._cancel_tasks)
 
     def _cancel_tasks(self):
-        """cancel all tasks pending tasks"""
+        """cancel all pending tasks"""
         tasks = asyncio.all_tasks(self.loop)
         self.logger.debug(f"Cancelling {len(tasks)} pending tasks...")
         for task in tasks:
@@ -245,12 +255,7 @@ class NTPspyServer(asyncio.DatagramProtocol):
 
     def datagram_received(self, data, addr):
         """enqueue incoming UDP packets"""
-        try:
-            ntp_packet = NTPdatagram.from_bytes(data)
-            self.incoming_queue.put_nowait((ntp_packet, addr))
-            #self.logger.debug(f"Received {len(data)} bytes from {addr}")
-        except ValueError:
-            pass  # ignore malformed packets
+        self.incoming_queue.put_nowait((data, addr))
 
     async def _transmit_loop(self):
         """auto send outgoing packets"""
@@ -259,7 +264,7 @@ class NTPspyServer(asyncio.DatagramProtocol):
             self.transport.sendto(response.to_bytes(), addr)
 
     async def _dispatch_loop(self):
-        """process incoming packets automatically (disable in REPL mode)"""
+        """process incoming datagrams automatically"""
         while True:
             try:
                 if self.running:
@@ -270,11 +275,12 @@ class NTPspyServer(asyncio.DatagramProtocol):
                 break
 
     async def dispatch_one(self):
-        """process single packet"""
+        """process single incoming datagram"""
         if not self.incoming_queue.empty():
-            ntp_packet, addr = await self.incoming_queue.get()
-            response = self.handle_packet(ntp_packet)
-            self.outgoing_queue.put_nowait((response, addr))
+            datagram, addr = await self.incoming_queue.get()
+            response = self.handle_datagram(datagram, addr)
+            if response:
+                self.outgoing_queue.put_nowait((response, addr))
 
     def purge_queues(self):
         self.incoming_queue = asyncio.Queue()
