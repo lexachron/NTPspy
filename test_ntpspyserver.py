@@ -46,5 +46,5 @@ class TestNTPspyServer(unittest.TestCase):
                 server.timestampgen = mocktimestamp
                 incoming = NTPdatagram(**input_fields)
                 expected = NTPdatagram(**expected_fields)
-                actual = server.handle_ntp_request(incoming)
+                actual = server.handle_ntp(incoming)
                 self.assertEqual(actual, expected)
