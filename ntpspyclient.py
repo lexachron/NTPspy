@@ -4,6 +4,9 @@ import time
 import zlib
 from ntpdatagram import NTPdatagram
 from ntpspymessage import NTPspyFunction, NTPspyMessage, NTPspyStatus
+from timestampgen import UNIX_TO_NTP
+
+UNIX_TO_NTP = 2208988800
 
 formatter = logging.Formatter(
     fmt='%(asctime)s - %(levelname)s - %(name)s.%(funcName)s - %(message)s',
@@ -14,7 +17,7 @@ logconsole.setLevel(logging.DEBUG)
 logconsole.setFormatter(formatter)
 
 class NTPspyClient:
-    def __init__(self, remote="127.0.0.1", port=1234, magic_number=0xDEADBEEF, timeout=5, verbose=False, version=2, session_id=None, interval=0):
+    def __init__(self, remote="localhost", port=1234, magic_number=0xDEADBEEF, timeout=5, verbose=False, version=2, session_id=None, interval=0):
         self.verbose = verbose
         self.server_addr = (remote, port)
         self.timeout = timeout
@@ -36,6 +39,7 @@ class NTPspyClient:
     def send_ntp(self, ntp_msg: NTPdatagram) -> NTPdatagram:
         try:
             #self.logger.debug(f"Sending NTPdatagram to {self.server_addr}")
+            ntp_msg.xmt_whole = int(time.time()) + UNIX_TO_NTP
             self.sock.sendto(ntp_msg.to_bytes(), self.server_addr)
 
             data, addr = self.sock.recvfrom(1024)
