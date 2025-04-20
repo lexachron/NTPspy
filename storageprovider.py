@@ -183,8 +183,9 @@ class DiskStorageProvider(StorageProvider):
             data_file = os.path.join(self.base_path, self.sessions[session_id][BufferType.DATA.value])
             try:
                 os.rename(data_file, final_path)
-                self.logger.info(f"Finalized session {session_id:x} to '{handle}'")
-                return handle
+                filename = os.path.relpath(final_path, self.base_path)
+                self.logger.info(f"Finalized session {session_id:x} to '{filename}'")
+                return filename
             except Exception as e:
                 self.logger.error(f"Failed to finalize session {session_id:x}: {e}")
                 raise FatalStorageError("Failed to finalize session")
@@ -211,6 +212,8 @@ class DiskStorageProvider(StorageProvider):
         while os.path.exists(final_path) and not overwrite:
             suffix += 1
             final_path = f"{base}_{suffix:03d}{ext}"
+        if suffix > 0:
+            self.logger.warning(f"Filename deconflict:'{base}{ext}' -> '{final_path}'")
         return final_path
 
     def delete_session(self, session_id: int) -> None:
