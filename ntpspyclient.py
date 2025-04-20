@@ -17,7 +17,7 @@ logconsole.setLevel(logging.DEBUG)
 logconsole.setFormatter(formatter)
 
 class NTPspyClient:
-    def __init__(self, remote="localhost", port=1234, magic_number=0xDEADBEEF, timeout=5, verbose=False, version=2, session_id=None, interval=0):
+    def __init__(self, remote="localhost", port=1234, magic_number=0xDEADBEEF, timeout=5, verbose=False, version=3, session_id=None, interval=0):
         self.verbose = verbose
         self.server_addr = (remote, port)
         self.timeout = timeout
@@ -91,12 +91,14 @@ class NTPspyClient:
         chunk_size = 4 # bytes
         start_time = time.time()
         last_progress = start_time
+        storage_required = len(data) + (len(filename) if filename else 0)
+
         # 1) verify presence of NTPspy and matching version
         probe_response = self.probe()
         if not probe_response:
             self.logger.error("Probe failed.")
             return False
-        if probe_response.status == NTPspyStatus.ERROR:
+        if probe_response.status == NTPspyStatus.FATAL_ERROR:
             self.logger.error("Server in error state.")
             return False
         if probe_response.version != self.version:
@@ -106,10 +108,15 @@ class NTPspyClient:
         # 2) request new session ID if not manually assigned
         if not self.session_id:
             self.logger.info("Requesting new session ID.")
-            session_request = NTPspyMessage(function=NTPspyFunction.XFER_DATA, magic=self.magic_number, session_id=0)
+            session_request = NTPspyMessage(
+                function = NTPspyFunction.NEW_SESSION, 
+                magic = self.magic_number, 
+                session_id = 0,
+                payload = storage_required,
+            )
             response = self.send_ntpspy(session_request)
-            if response.status == NTPspyStatus.ERROR:
-                self.logger.error("Server in error state.")
+            if not response or response.status == NTPspyStatus.FATAL_ERROR:
+                self.logger.error("Server denied session request.")
                 return False
             self.session_id = response.session_id
             self.logger.info(f"Received session ID: {self.session_id}")

@@ -19,7 +19,7 @@ logconsole.setLevel(logging.DEBUG)
 logconsole.setFormatter(formatter)
 
 class NTPspyServer(asyncio.DatagramProtocol):
-    def __init__(self, path=None, host=None, port=None, magic_number=None, storage_provider=None, verbose=0, version=2, timestampgen=None, allow_overwrite=False):
+    def __init__(self, path=None, host=None, port=None, magic_number=None, storage_provider=None, verbose=0, version=3, timestampgen=None, allow_overwrite=False):
         self.host = host or "0.0.0.0"
         self.port = port or 1234
         self.magic_number = magic_number or 0xdeadbeef
@@ -82,7 +82,9 @@ class NTPspyServer(asyncio.DatagramProtocol):
             return reply
         match msg.function:
             case NTPspyFunction.PROBE:
-                return self.probe(msg)
+                return self.probe(msg, addr)
+            case NTPspyFunction.NEW_SESSION:
+                return self.session_init(msg, addr)
             case NTPspyFunction.XFER_DATA:
                 return self.transfer(msg, BufferType.DATA)
             case NTPspyFunction.CHECK_DATA:
@@ -96,23 +98,46 @@ class NTPspyServer(asyncio.DatagramProtocol):
             case NTPspyFunction.ABORT:
                 return self.abort(msg)
             case _:
-                return NTPspyMessage(status=NTPspyStatus.FATAL_ERROR)  # cease fire
+                return NTPspyMessage(
+                    status=NTPspyStatus.FATAL_ERROR,
+                    version=self.version,
+                    magic=self.magic_number,
+                )  # cease fire
 
-    def probe(self, msg: NTPspyMessage) -> NTPspyMessage:
+    def probe(self, msg: NTPspyMessage, addr) -> NTPspyMessage:
         """handle version query"""
-        self.logger.info(f"Handling version probe. Client: {msg.version}, Server: {self.version}")
+        client = addr[0]
+        self.logger.info(f"{client}: Handling version probe. Client: {msg.version}, Server: {self.version}")
         reply = msg
         reply.version = self.version
         return reply
     
+    def session_init(self, msg: NTPspyMessage, addr) -> NTPspyMessage:
+        """assign new session ID"""
+        reply = msg
+        storage_required = int(msg.payload)
+        client = addr[0]
+        self.logger.info(f"{client}: Requested new session for {storage_required:,} bytes")
+        if self.blocked:
+            reply.status = NTPspyStatus.FATAL_ERROR
+            self.logger.warning("Denied new session request while in blocked state")
+            return reply
+        try:
+            new_session = self.storage_provider.allocate_session()
+            reply.session_id = new_session
+            self.logger.info(f"{client}: Sending new session ID: {new_session:x}")
+        except StorageError:
+            reply.status = NTPspyStatus.FATAL_ERROR
+            self.logger.error(f"Failed to allocate new session ID: {msg.session_id}")
+            reply.payload = 0
+        return reply
+
     def transfer(self, msg: NTPspyMessage, type: BufferType) -> NTPspyMessage:
         """handle data or text transfer"""
         reply = msg
         if msg.session_id == 0:
-            # allocate new session
-            new_session = self.storage_provider.allocate_session()
-            reply.session_id = new_session
-            self.logger.info(f"Sending new session ID: {new_session:x}")
+            reply.status = NTPspyStatus.FATAL_ERROR
+            self.logger.error("Invalid session ID for transfer")
         else:
             # write data to existing session
             data = msg.payload.to_bytes(4, byteorder='big')[:msg.length]

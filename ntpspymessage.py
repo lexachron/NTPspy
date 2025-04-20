@@ -8,6 +8,7 @@ class NTPspyFunction(IntEnum):
     XFER_TEXT = 3
     CHECK_TEXT = 4
     RENAME = 5
+    NEW_SESSION = 6
     ABORT = 9
 
 class NTPspyStatus(IntEnum):
