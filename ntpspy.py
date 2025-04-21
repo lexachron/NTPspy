@@ -97,7 +97,7 @@ if __name__ == "__main__":
                         logger.warning("No data to send. Skipping.")
                         continue
                     logger.debug(f"Read {len(data)} bytes of unnamed data")
-                    client.transfer_data(data, None)
+                    client.transfer_session(data, None)
         
         ## read piped input
         elif not sys.stdin.isatty():
@@ -106,7 +106,7 @@ if __name__ == "__main__":
                 logger.error("Empty pipe")
                 exit(1)
             logger.debug(f"Read {len(data)} bytes of unnamed data")
-            client.transfer_data(data, None)
+            client.transfer_session(data, None)
 
         ## no filenames or pipe input
         else:

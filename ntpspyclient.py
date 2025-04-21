@@ -6,8 +6,6 @@ from ntpdatagram import NTPdatagram
 from ntpspymessage import NTPspyFunction, NTPspyMessage, NTPspyStatus
 from timestampgen import UNIX_TO_NTP
 
-UNIX_TO_NTP = 2208988800
-
 formatter = logging.Formatter(
     fmt='%(asctime)s - %(levelname)s - %(name)s.%(funcName)s - %(message)s',
     datefmt='%Y-%m-%dT%H:%M:%S'
@@ -38,13 +36,11 @@ class NTPspyClient:
 
     def send_ntp(self, ntp_msg: NTPdatagram) -> NTPdatagram:
         try:
-            #self.logger.debug(f"Sending NTPdatagram to {self.server_addr}")
             ntp_msg.xmt_whole = int(time.time()) + UNIX_TO_NTP
             self.sock.sendto(ntp_msg.to_bytes(), self.server_addr)
 
             data, addr = self.sock.recvfrom(1024)
             response = NTPdatagram.from_bytes(data)
-            #self.logger.debug(f"Received response from {addr}")
             return response
         except socket.timeout:
             self.logger.error("Timeout waiting for response.")
@@ -67,7 +63,7 @@ class NTPspyClient:
         self.logger.info("Client socket closed.")
 
     def transfer_file(self, filepath: str):
-        """upload local file to server as data block"""
+        """upload local file to by filename"""
         self.logger.info(f"Reading transfer source: {filepath}")
         try:
             with open(filepath, 'rb') as f:
@@ -77,7 +73,7 @@ class NTPspyClient:
             return False
         filename = filepath.split('/')[-1]
         try:
-            self.transfer_data(data, filename)
+            self.transfer_session(data, filename)
         except KeyboardInterrupt:
             self.logger.warning("Transfer interrupted.")
             if self.session_id:
@@ -86,86 +82,53 @@ class NTPspyClient:
             return False
         return True
     
-    def transfer_data(self, data: bytes, filename: str):
-        """upload data block to server in chunks"""
-        chunk_size = 4 # bytes
+    def transfer_session(self, data: bytes, filename: str = None):
+        """upload data block in chunks with optional name"""
         start_time = time.time()
-        last_progress = start_time
-        storage_required = len(data) + (len(filename) if filename else 0)
+
+        if len(data) == 0:
+            self.logger.warning("No data to transfer. Aborting.")
+            return False
 
         # 1) verify presence of NTPspy and matching version
-        probe_response = self.probe()
-        if not probe_response:
-            self.logger.error("Probe failed.")
+        if not self.check_server_version(self.version):
+            self.logger.error("Server version mismatch. Aborting transfer.")
             return False
-        if probe_response.status == NTPspyStatus.FATAL_ERROR:
-            self.logger.error("Server in error state.")
-            return False
-        if probe_response.version != self.version:
-            self.logger.error(f"Server version mismatch. Client: {self.version}, Server: {probe_response.version}")
-            return False
-        
-        # 2) request new session ID if not manually assigned
+                # 2) request new session ID if not manually assigned
+        storage_required = len(data) + (len(filename) if filename else 0)
+        self.session_id = self.get_session_id(storage_required)
         if not self.session_id:
-            self.logger.info("Requesting new session ID.")
-            session_request = NTPspyMessage(
-                function = NTPspyFunction.NEW_SESSION, 
-                magic = self.magic_number, 
-                session_id = 0,
-                payload = storage_required,
-            )
-            response = self.send_ntpspy(session_request)
-            if not response or response.status == NTPspyStatus.FATAL_ERROR:
-                self.logger.error("Server denied session request.")
-                return False
-            self.session_id = response.session_id
-            self.logger.info(f"Received session ID: {self.session_id}")
-
+            self.logger.error("Failed to obtain session ID. Aborting transfer.")
+            return False
         # 3) transfer filename in chunks
         if filename:
             filename_bytes = filename.encode()
             filename_crc = zlib.crc32(filename_bytes)
-            chunk_count = len(filename_bytes) // chunk_size
-            for sequence, offset in enumerate(range(0, len(filename_bytes), chunk_size)):
-                chunk = filename_bytes[offset:offset + chunk_size]
-                if not self.transfer_text(self.session_id, sequence, chunk, len(chunk), chunk_count):
-                    self.logger.error(f"Session {self.session_id} Failed to transfer chunk {sequence}. Aborting transfer.")
-                    self.abort(self.session_id)
-                    return False
-                if self.interval > 0:
-                    time.sleep(self.interval)
-            self.logger.info(f"Session: {self.session_id} - Text transfer completed")
-
+            self.logger.info(f"Session: {self.session_id} - Transferring filename: '{filename}' ({len(filename_bytes)} bytes)")
+            if not self.transfer_data(self.session_id, filename_bytes, NTPspyFunction.XFER_TEXT):
+                return False
             # 3.b) verify filename integrity
-            if not self.verify_text(self.session_id, filename_crc):
+            if not self.verify(self.session_id, NTPspyFunction.CHECK_TEXT, filename_crc):
                 self.logger.error("Filename verification failed. Aborting transfer.")
                 return False
             self.logger.info("Filename verification passed.")            
-
         # 4) transfer data in chunks
         length = len(data)
-        chunk_count = length // chunk_size
         self.logger.info(f"Session: {self.session_id} - Transferring {length} bytes with name: '{filename}'")
-        for sequence, offset in enumerate(range(0, len(data), chunk_size)):
-            chunk = data[offset:offset + chunk_size]
-            if not self.transfer_chunk(self.session_id, sequence, chunk, len(chunk), chunk_count):
-                self.logger.error(f"Session {self.session_id} Failed to transfer chunk {sequence}. Aborting transfer.")
-                self.abort(self.session_id)
-                return False
-            if self.interval > 0:
-                time.sleep(self.interval)
-            current_time = time.time()
-            if current_time - last_progress >= self.progress_interval:
-                progress = (sequence + 1) / chunk_count * 100
-                self.logger.info(f"Session: {self.session_id} - Progress: {progress:.2f}% ({sequence + 1}/{chunk_count})")
-                last_progress = current_time
-
+        if not self.transfer_data(self.session_id, data, NTPspyFunction.XFER_DATA):
+            self.logger.error("Data transfer failed. Aborting transfer.")
+            self.abort(self.session_id)
+            return False
         # 5) verify data integrity
-        checksum = zlib.crc32(data)
-        self.verify_data(self.session_id, checksum)
-
+        data_crc = zlib.crc32(data)
+        if not self.verify(self.session_id, NTPspyFunction.CHECK_DATA, data_crc):
+            self.logger.error("Data verification failed. Aborting transfer.")
+            self.abort(self.session_id)
+            return False
         # 6) finalize session
-        self.rename(self.session_id)
+        if not self.rename(self.session_id):
+            self.logger.error("Failed to rename file. Check server temporary store for session: {self.session_id}")
+            return False
 
         current_time = time.time()
         total_transfer_size = len(data) + (len(filename) if filename else 0)
@@ -175,35 +138,97 @@ class NTPspyClient:
         self.session_id = None
         return True
 
+    def transfer_data(self, session_id: int, data: bytes, type: NTPspyFunction) -> bool:
+        """transfer block of data (or text) in chunks"""
+        chunk_size = 4  # bytes
+        chunk_count = len(data) // chunk_size
+        current_time = last_progress = time.time()
+        for sequence, offset in enumerate(range(0, len(data), chunk_size)):
+            chunk = data[offset:offset + chunk_size]
+            if not self.transfer_chunk(session_id, type, sequence, chunk, len(chunk), chunk_count):
+                self.logger.error(f"Session {session_id} Failed to {type.name} chunk {sequence}. Aborting transfer.")
+                self.abort(session_id)
+                return False
+            if self.interval > 0:
+                time.sleep(self.interval)
+            current_time = time.time()
+            if current_time - last_progress >= self.progress_interval:
+                progress = (sequence + 1) / chunk_count * 100
+                self.logger.info(f"Session: {self.session_id} - Progress: {progress:.2f}% ({sequence + 1}/{chunk_count})")
+                last_progress = current_time
+        self.logger.info(f"Session: {session_id} - {type.name} transfer completed")
+        return True
+
     def probe(self):
         """query server for NTPspy presence and version"""
         self.logger.info(f"Sending probe message to the server. Magic: 0x{self.magic_number:X}, Version: {self.version}")
-        msg = NTPspyMessage(status=1, function=NTPspyFunction.PROBE, magic=self.magic_number, version=self.version)
+        msg = NTPspyMessage(
+            function=NTPspyFunction.PROBE, 
+            magic=self.magic_number, 
+            version=self.version
+        )
         response = self.send_ntpspy(msg)
         if not response:
             self.logger.error("Probe failed.")
             return None
-        if response.status == NTPspyStatus.ERROR:
+        if response.status == NTPspyStatus.ERROR or response.status == NTPspyStatus.FATAL_ERROR:
             self.logger.error("Server in error state.")
-            return None
         if response.version != self.version:
             self.logger.error(f"Server version mismatch. Client: {self.version}, Server: {response.version}")
         if response.version == self.version:
             self.logger.info(f"Received server reply version: {response.version}.")
         return response
 
-    def transfer_chunk(self, session_id: int, sequence: int, data: bytes, length: int, chunkcount: int, type=NTPspyStatus.NORMAL):
-        """upload single data chunk to server"""
+    def check_server_version(self, local_version: int) -> bool:
+        """check server version"""
+        msg = NTPspyMessage(
+            status=1, 
+            function=NTPspyFunction.PROBE, 
+            magic=self.magic_number, 
+            version=local_version
+        )
+        response = self.send_ntpspy(msg)
+        if not response:
+            self.logger.error("No response from server.")
+            return False
+        if response.status == NTPspyStatus.ERROR or response.status == NTPspyStatus.FATAL_ERROR:
+            self.logger.error("Server in error state.")
+            return False
+        remote_version = response.version
+        if local_version != remote_version:
+            self.logger.error(f"Version mismatch. Client: {local_version}, Server: {remote_version}")
+            return False
+        self.logger.debug(f"Version check passed. Client: {local_version}, Server: {remote_version}")
+        return True
+
+    def get_session_id(self, storage_required: int) -> int:
+        self.logger.info("Requesting new session ID.")
+        session_request = NTPspyMessage(
+            function = NTPspyFunction.NEW_SESSION, 
+            magic = self.magic_number, 
+            session_id = 0,
+            payload = storage_required,
+        )
+        response = self.send_ntpspy(session_request)
+        if not response or response.status == NTPspyStatus.FATAL_ERROR:
+            self.logger.error("Server denied session request.")
+            return None
+        new_session = response.session_id
+        self.logger.info(f"Received session ID: {new_session:x}")
+        return new_session
+
+    def transfer_chunk(self, session_id: int, type: NTPspyFunction, sequence: int, data: bytes, length: int, chunkcount: int):
+        """upload single chunk, data or text, to server"""
+        msg = NTPspyMessage(
+            status = type,
+            function = type,
+            magic = self.magic_number,
+            session_id = session_id,
+            sequence_number = sequence,
+            payload = data[:length],
+            length = len(data)
+        )
         for attempt in range(self.max_retry):
-            msg = NTPspyMessage(
-                status=type,
-                function=NTPspyFunction.XFER_DATA,
-                magic=self.magic_number,
-                session_id=session_id,
-                sequence_number=sequence,
-                payload=data[:length],
-                length=length
-            )
             self.logger.debug(f"Session: {session_id} Chunk: {sequence}/{chunkcount} Attempt: {attempt + 1}/{self.max_retry} Data: {data}")
             response = self.send_ntpspy(msg)
             if not response:
@@ -216,83 +241,35 @@ class NTPspyClient:
         self.logger.error(f"Failed to transfer chunk {sequence} for session {session_id}.")
         return False
 
-    def verify_data(self, session_id: int, expected_crc: int):
-        """verify file integrity"""
-        request = NTPspyMessage(
-            function=NTPspyFunction.CHECK_DATA,
-            magic=self.magic_number,
-            session_id=session_id,
-            payload=expected_crc.to_bytes(4, 'big')
-        )
-        self.logger.info(f"Session: {session_id} - Sending CRC check: {expected_crc:08x}")
-        response = self.send_ntpspy(request)
-
-        if not response:
-            self.logger.error("No response from server.")
-            return False
-        if response.status == NTPspyStatus.ERROR:
-            self.logger.error("Server in error state.")
-            return False
-        if response.payload != expected_crc:
-            self.logger.error(f"CRC failure. Expected: {expected_crc:x}, Received: {response.payload:x}")
-            return False
-        self.logger.info(f"Data check passed, session {session_id}.")
-        return True
-
-    def transfer_text(self, session_id: int, sequence: int, data: bytes, length: int, chunkcount:int):
-        """send filename to server in chunks"""
-        for attempt in range(self.max_retry):
-            msg = NTPspyMessage(
-                status=NTPspyStatus.NORMAL,
-                function=NTPspyFunction.XFER_TEXT,
-                magic=self.magic_number,
-                session_id=session_id,
-                sequence_number=sequence,
-                payload=data[:length],
-                length=length
-            )
-            self.logger.debug(f"Session: {session_id} Chunk: {sequence}/{chunkcount} Attempt: {attempt + 1}/{self.max_retry} Data: {data}")
-            response = self.send_ntpspy(msg)
-            if not response:
-                self.logger.warning(f"No response from server for text chunk {sequence}. Retrying...")
-                continue  # Retry on no response
-            if response.status == NTPspyStatus.ERROR:
-                self.logger.error(f"Server returned fatal error for text chunk {sequence}. Aborting transfer.")
-                return False  # Abort on server error
-#            response_bytes = bytes(response.payload)
-#            if response_bytes != data[:length]:
-#                self.logger.warning(f"Payload mismatch for text chunk {sequence}. Expected: {data[:length]}, Received: {response_bytes}. Retrying...")
-#                continue  # Retry on payload mismatch
-
-            self.logger.debug(f"Session: {session_id} Chunk: {sequence} transferred {length} bytes")
-            return True
-
-        self.logger.error(f"Failed to transfer text chunk {sequence} for session {session_id}.")
-        return False
-
-    def verify_text(self, session_id: int, expected_crc: int):
+    def verify(self, session_id: int, type: NTPspyFunction, expected_crc: int):
         """verify filename integrity"""
         request = NTPspyMessage(
-            function=NTPspyFunction.CHECK_TEXT,
+            function=type,
             magic=self.magic_number,
             session_id=session_id,
             payload=expected_crc.to_bytes(4, 'big')
         )
-        self.logger.info(f"Session: {session_id} - Sending CRC check: {expected_crc:08x}")
-        response = self.send_ntpspy(request)
+        for attempt in range(self.max_retry):
+            self.logger.info(f"Session: {session_id} - {type.name} - Attempt CRC check: {expected_crc:08x}")
+            response = self.send_ntpspy(request)
 
-        if not response:
-            self.logger.error("No response from server.")
-            return False
-        if response.status == NTPspyStatus.ERROR:
-            self.logger.error("Server in error state.")
-            return False
-        if response.payload != expected_crc:
-            self.logger.error(f"CRC failure. Expected: {expected_crc:x}, Received: {response.payload:x}")
-            return False
-        
-        self.logger.info(f"Text check passed for session: {session_id}.")
-        return True
+            if not response:
+                self.logger.error("No response from server.")
+                continue
+            if response.status == NTPspyStatus.ERROR:
+                self.logger.error("Server in error state. Retrying.")
+                continue
+            if response.status == NTPspyStatus.FATAL_ERROR:
+                self.logger.error("Server reported fatal error.")
+                return False
+            if response.payload != expected_crc:
+                self.logger.error(f"CRC failure. Expected: {expected_crc:x}, Received: {response.payload:x}")
+                return False
+            else:
+                self.logger.info(f"{type.name} passed for session: {session_id}")
+                return True
+        self.logger.error(f"{type.name} Failed to verify session {session_id}")
+        return False
 
     def rename(self, session_id):
         """instruct server to rename file and finalize session"""
