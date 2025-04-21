@@ -85,10 +85,10 @@ class NTPspyClient:
     def transfer_session(self, data: bytes, filename: str = None):
         """upload data block in chunks with optional name"""
         start_time = time.time()
-
         if len(data) == 0:
             self.logger.warning("No data to transfer. Aborting.")
             return False
+        self.logger.info(f"Transferring {_readable_size(len(data))} of data with name: '{filename}'")
 
         # 1) verify presence of NTPspy and matching version
         if not self.check_server_version(self.version):
@@ -127,7 +127,7 @@ class NTPspyClient:
             return False
         # 6) finalize session
         if not self.rename(self.session_id):
-            self.logger.error("Failed to rename file. Check server temporary store for session: {self.session_id}")
+            self.logger.error(f"Failed to rename file. Check server temporary store for session: {self.session_id}")
             return False
 
         current_time = time.time()
@@ -313,11 +313,13 @@ class NTPspyClient:
             handler.setLevel(level)
 
 def _readable_size(size: int) -> str:
-    for unit in ['B', 'KB', 'MB']:
+    for unit in ['B', 'KB', 'MB', 'GB']:
         if size < 1024:
-            return f"{size:.2f} {unit}"
+            fmt_size = f"{size:.0f}" if size.is_integer() else f"{size:.2f}"
+            return f"{fmt_size} {unit}"
         size /= 1024
-    return f"{size:.2f} GB"
+    fmt_size = f"{size:.0f}" if size.is_integer() else f"{size:.2f}"
+    return f"{fmt_size} GB"
 
 if __name__ == "__main__":
     client = NTPspyClient()
