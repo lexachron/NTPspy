@@ -1,5 +1,6 @@
 from ntpspyserver import NTPspyServer
 from ntpspyclient import NTPspyClient
+from pathlib import Path
 import argparse
 import asyncio
 import logging
@@ -8,6 +9,11 @@ import sys
 DEFAULT_NTP_PORT = 123
 DEFAULT_MAGIC_NUMBER = 0xdeadbeef
 DEFAULT_PATH = "."
+
+try:
+    __version__ = Path(__file__).parent.joinpath("VERSION").read_text().strip()
+except FileNotFoundError:
+    __version__ = "version ???" # VERSION file missing or unreadable
 
 formatter = logging.Formatter(
     fmt='%(asctime)s - %(levelname)s - %(name)s.%(funcName)s - %(message)s',
@@ -30,6 +36,7 @@ if __name__ == "__main__":
     parser.add_argument("-t", type=int, default=0, help="Minimum interval (sec) (client only)")
     parser.add_argument("remote", type=str, nargs='?', help="Remote host (client only)")
     parser.add_argument("files", type=str, nargs='*', help="Filename to transfer (client only)")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}", help="Show version and exit")
     args = parser.parse_args()
 
     levels = [logging.WARNING, logging.INFO, logging.DEBUG]
@@ -59,7 +66,7 @@ if __name__ == "__main__":
             logger.error("Server mode does not accept remote host or filenames")
             parser.print_help()
             exit(1)
-        logger.info("Starting NTPspy in server mode.")
+        logger.info(f"NTPspy {__version__} starting in server mode.")
         if args.s == DEFAULT_PATH:
             logger.warning(f"Storing files in default path: '{DEFAULT_PATH}'")
         server = NTPspyServer(
@@ -92,6 +99,7 @@ if __name__ == "__main__":
                 if filename != "-":
                     client.transfer_file(filename)
                 else:
+                    print("Reading input from terminal, send EOF (Ctrl+d or Ctrl+z on Win) to finish.")
                     data = sys.stdin.buffer.read()
                     if not data:
                         logger.warning("No data to send. Skipping.")
