@@ -21,7 +21,7 @@ class NTPspyStatus(IntEnum):
 
 class NTPspyMessage:
     def __init__(self,
-                 status=0,
+                 status=NTPspyStatus.NORMAL,
                  function=NTPspyFunction.PROBE,
                  version=1,
                  magic=0,
@@ -30,11 +30,8 @@ class NTPspyMessage:
                  payload=0,
                  length=0
                  ):
-        self.status = status # ntp.leap
-            # 1: first chunk of new transfer
-            # 2: last chunk of this session
-            # 3: fatal error, abort session
-        self.function = function # ntp.poll
+        self.status = status # ntp.leap : NTPspyStatus
+        self.function = function # ntp.poll : NTPspyFunction
         self.version = version #ntp.precision
             # ntpspy protocol version, valid range 1-15
         self.magic = magic # ntp.rootdelay
@@ -52,7 +49,7 @@ class NTPspyMessage:
     @classmethod
     def from_ntp(cls, ntp: NTPdatagram):
         return cls(
-            status=ntp.leap,
+            status=NTPspyStatus(ntp.leap),
             function=NTPspyFunction(ntp.poll),
             version=ntp.precision,
             magic=ntp.rootdelay,
@@ -79,3 +76,10 @@ class NTPspyMessage:
             ntp.xmt_frac = int(self.payload)
         ntp.rootdispersion = self.length
         return ntp
+    
+    def __repr__(self) -> str:
+        return (
+            f"NTPspyMsg(status={NTPspyStatus(self.status).name}, func={NTPspyFunction(self.function).name}, "
+            f"ver={self.version}, magic={self.magic:08x}, session={self.session_id:x}, "
+            f"seq={self.sequence_number}, payload={self.payload:08x}, len={self.length})"
+        )

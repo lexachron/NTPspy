@@ -1,5 +1,8 @@
+import datetime
 import struct
 from enum import IntEnum
+
+UNIX_TO_NTP = 2208988800
 
 class NTPmode(IntEnum):
     RESERVE = 0
@@ -118,3 +121,21 @@ class NTPdatagram:
         if not isinstance(other, NTPdatagram):
             return False
         return vars(self) == vars(other)
+    
+    def __repr__(self) -> str:
+        def ntptime(seconds):
+            unix_seconds = min(0, (seconds - UNIX_TO_NTP))
+            iso = datetime.date.fromtimestamp(unix_seconds).strftime("%Y-%m-%d %H:%M:%S")
+            return iso
+        
+        return (
+            f"NTP(\n\tleap={self.leap}, ver={self.version}, mode={NTPmode(self.mode).name}, "
+            f"stratum={self.stratum}, poll={self.poll}, precision={self.precision}\n"
+            f"\tdelay={self.rootdelay:08x}, "
+            f"dispersion={self.rootdispersion:08x}, "
+            f"refid={self.refid:08x}\n"
+            f"\tref_whole={ntptime(self.reftime_whole)}, ref_frac={self.reftime_frac:08x}\n"
+            f"\torg_whole={ntptime(self.org_whole)}, org_frac={self.org_frac:08x}\n"
+            f"\trec_whole={ntptime(self.rec_whole)}, rec_frac={self.rec_frac:08x}\n"
+            f"\txmt_whole={ntptime(self.xmt_whole)}, xmt_frac={self.xmt_frac:08x}\n)"
+        )    
