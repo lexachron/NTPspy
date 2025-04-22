@@ -315,10 +315,11 @@ class NTPspyClient:
 def _readable_size(size: int) -> str:
     for unit in ['B', 'KB', 'MB', 'GB']:
         if size < 1024:
-            fmt_size = f"{size:.0f}" if size.is_integer() else f"{size:.2f}"
+            fmt_size = f"{size}" if isinstance(size, int) else f"{size:.2f}"
+            fmt_size = int(float(fmt_size)) if fmt_size.endswith('.00') else fmt_size
             return f"{fmt_size} {unit}"
         size /= 1024
-    fmt_size = f"{size:.0f}" if size.is_integer() else f"{size:.2f}"
+    fmt_size = size if isinstance(size, int) else f"{size:.2f}"
     return f"{fmt_size} GB"
 
 if __name__ == "__main__":

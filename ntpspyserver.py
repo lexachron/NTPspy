@@ -78,32 +78,30 @@ class NTPspyServer(asyncio.DatagramProtocol):
         """dispatch NTPspy message to appropriate function handler"""
         if self.blocked:
             reply = msg
-            reply.status = NTPspyStatus.ERROR
+            reply.status = NTPspyStatus.FATAL_ERROR
             return reply
-        match msg.function:
-            case NTPspyFunction.PROBE:
-                return self.probe(msg, addr)
-            case NTPspyFunction.NEW_SESSION:
-                return self.session_init(msg, addr)
-            case NTPspyFunction.XFER_DATA:
-                return self.transfer(msg, BufferType.DATA)
-            case NTPspyFunction.CHECK_DATA:
-                return self.verify(msg, BufferType.DATA)
-            case NTPspyFunction.XFER_TEXT:
-                return self.transfer(msg, BufferType.TEXT)
-            case NTPspyFunction.CHECK_TEXT:
-                return self.verify(msg, BufferType.TEXT)
-            case NTPspyFunction.RENAME:
-                return self.rename(msg)
-            case NTPspyFunction.ABORT:
-                return self.abort(msg)
-            case _:
-                return NTPspyMessage(
-                    status=NTPspyStatus.FATAL_ERROR,
-                    version=self.version,
-                    magic=self.magic_number,
-                )  # cease fire
 
+        handlers = {
+            NTPspyFunction.PROBE: lambda: self.probe(msg, addr),
+            NTPspyFunction.NEW_SESSION: lambda: self.session_init(msg, addr),
+            NTPspyFunction.XFER_DATA: lambda: self.transfer(msg, BufferType.DATA),
+            NTPspyFunction.CHECK_DATA: lambda: self.verify(msg, BufferType.DATA),
+            NTPspyFunction.XFER_TEXT: lambda: self.transfer(msg, BufferType.TEXT),
+            NTPspyFunction.CHECK_TEXT: lambda: self.verify(msg, BufferType.TEXT),
+            NTPspyFunction.RENAME: lambda: self.rename(msg),
+            NTPspyFunction.ABORT: lambda: self.abort(msg),
+        }
+
+        handler = handlers.get(msg.function)
+        if handler:
+            return handler()
+        else:
+            return NTPspyMessage(
+                status=NTPspyStatus.FATAL_ERROR,
+                version=self.version,
+                magic=self.magic_number,
+            )  # cease fire
+        
     def probe(self, msg: NTPspyMessage, addr) -> NTPspyMessage:
         """handle version query"""
         client = addr[0]
