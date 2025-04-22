@@ -92,7 +92,7 @@ class NTPspyClient:
 
         # 1) verify presence of NTPspy and matching version
         if not self.check_server_version(self.version):
-            self.logger.error("Server version mismatch. Aborting transfer.")
+            self.logger.error("Server in blocked state or wrong version. Aborting transfer.")
             return False
                 # 2) request new session ID if not manually assigned
         storage_required = len(data) + (len(filename) if filename else 0)
@@ -167,34 +167,19 @@ class NTPspyClient:
             magic=self.magic_number, 
             version=self.version
         )
-        response = self.send_ntpspy(msg)
-        if not response:
-            self.logger.error("Probe failed.")
-            return None
-        if response.status == NTPspyStatus.ERROR or response.status == NTPspyStatus.FATAL_ERROR:
-            self.logger.error("Server in error state.")
-        if response.version != self.version:
-            self.logger.error(f"Server version mismatch. Client: {self.version}, Server: {response.version}")
-        if response.version == self.version:
-            self.logger.info(f"Received server reply version: {response.version}.")
-        return response
+        return self.send_ntpspy(msg)
 
     def check_server_version(self, local_version: int) -> bool:
         """check server version"""
-        msg = NTPspyMessage(
-            status=1, 
-            function=NTPspyFunction.PROBE, 
-            magic=self.magic_number, 
-            version=local_version
-        )
-        response = self.send_ntpspy(msg)
-        if not response:
+        probe = self.probe()
+        if not probe:
             self.logger.error("No response from server.")
             return False
-        if response.status == NTPspyStatus.ERROR or response.status == NTPspyStatus.FATAL_ERROR:
+        self.logger.debug(probe)
+        if probe.status == NTPspyStatus.ERROR or probe.status == NTPspyStatus.FATAL_ERROR:
             self.logger.error("Server in error state.")
             return False
-        remote_version = response.version
+        remote_version = probe.version
         if local_version != remote_version:
             self.logger.error(f"Version mismatch. Client: {local_version}, Server: {remote_version}")
             return False

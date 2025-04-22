@@ -1,5 +1,6 @@
 from ntpspyserver import NTPspyServer
 from ntpspyclient import NTPspyClient
+from ntpspymessage import NTPspyStatus
 from pathlib import Path
 import argparse
 import asyncio
@@ -39,8 +40,7 @@ if __name__ == "__main__":
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}", help="Show version and exit")
     args = parser.parse_args()
 
-    levels = [logging.WARNING, logging.INFO, logging.DEBUG]
-    logger.setLevel(levels[min(args.v, len(levels)-1)])
+    logger.setLevel(logging.DEBUG if args.v > 0 else logging.INFO)
 
     hostname = None
     port = args.p
@@ -90,7 +90,14 @@ if __name__ == "__main__":
 
         ## probe only
         if args.q:
-            client.probe()
+            probe = client.probe()
+            if not probe:
+                logger.error("Probe failed. Server unreachable, not NTPspy, or wrong magic number.")
+                exit(1)
+            else:
+                logger.debug(f"{probe}")
+                logger.info(f"Server version: {probe.version}, Status: {NTPspyStatus(probe.status).name}")
+                exit(0)
             exit(0)
 
         ## process files

@@ -105,9 +105,9 @@ class NTPspyServer(asyncio.DatagramProtocol):
     def probe(self, msg: NTPspyMessage, addr) -> NTPspyMessage:
         """handle version query"""
         client = addr[0]
-        self.logger.info(f"{client}: Handling version probe. Client: {msg.version}, Server: {self.version}")
         reply = msg
         reply.version = self.version
+        self.logger.info(f"{client}: Handling version probe. Client: {msg.version}, Server: {self.version}, Status: {NTPspyStatus(reply.status).name}")
         return reply
     
     def session_init(self, msg: NTPspyMessage, addr) -> NTPspyMessage:
