@@ -2,9 +2,9 @@ import unittest
 import csv
 
 from ntpspyserver import NTPspyServer
-from ntpspymessage import NTPspyMessage, NTPspyFunction
-from ntpdatagram import NTPdatagram, NTPmode
+from ntpdatagram import NTPdatagram
 from timestampgen import MockTimestampGenerator
+from storageprovider import MemoryStorageProvider
 
 TESTDATA_NTP = "ntpspy_testdata/test_handle_ntp.csv"
 #TESTDATA_SPY = "ntpspy_testdata/test_handle_spy.csv"
@@ -40,11 +40,14 @@ class TestNTPspyServer(unittest.TestCase):
     def test_handle_ntp(self):
         """test NTP request handling"""
         mocktimestamp = MockTimestampGenerator()
+        addr = ("127.1.1.1", 6667)
         for row_num, server_config, input_fields, expected_fields in self.ntp_test_cases:
             with self.subTest(row=row_num):
+                storage = MemoryStorageProvider()
+                server_config["storage_provider"] = storage  
                 server = NTPspyServer(**server_config)
                 server.timestampgen = mocktimestamp
                 incoming = NTPdatagram(**input_fields)
                 expected = NTPdatagram(**expected_fields)
-                actual = server.handle_ntp(incoming)
+                actual = server.handle_ntp(incoming, addr)
                 self.assertEqual(actual, expected)

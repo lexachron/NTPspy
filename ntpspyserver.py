@@ -19,14 +19,14 @@ logconsole.setLevel(logging.DEBUG)
 logconsole.setFormatter(formatter)
 
 class NTPspyServer(asyncio.DatagramProtocol):
-    def __init__(self, path=None, host=None, port=None, magic_number=None, storage_provider=None, verbose=0, version=3, timestampgen=None, allow_overwrite=False):
+    def __init__(self, path=None, host=None, port=None, magic_number=None, storage_provider=None, verbose=0, version=3, timestampgen=None, allow_overwrite=False, blocked=False):
         self.host = host or "0.0.0.0"
         self.port = port or 1234
         self.magic_number = magic_number or 0xdeadbeef
         self.path = path or "."
         self.version = version
         # temporarily reject all new sessions, cause client to abort current sessions
-        self.blocked = False
+        self.blocked = blocked
         # if overwrite disabled, storage provider either silently renames or fails on name collision
         self.allow_overwrite = allow_overwrite
         self.transport = None
