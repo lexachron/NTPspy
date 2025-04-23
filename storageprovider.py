@@ -61,6 +61,10 @@ class StorageProvider(ABC):
         """delete all active sessions"""
         pass
 
+    def _generate_filename(self, session_id: int) -> str:
+        timestamp = datetime.datetime.now().strftime("%y%m%d-%H%M%S")
+        return f"{timestamp}-{session_id:08x}"
+    
 class StorageError(Exception):
     """Base class for storage-related errors."""
     pass
@@ -202,10 +206,6 @@ class DiskStorageProvider(StorageProvider):
                 return f.read().strip()
         return None
 
-    def _generate_filename(self, session_id: int) -> str:
-        timestamp = datetime.datetime.now().strftime("%y%m%d-%H%M%S")
-        return f"{timestamp}-{session_id:08x}"
-    
     def _resolve_collision(self, final_path: str, overwrite: bool) -> str:
         base, ext = os.path.splitext(final_path)
         suffix = 0
@@ -305,12 +305,11 @@ class MemoryStorageProvider(StorageProvider):
             text_buffer.seek(0)
             handle = text_buffer.read().decode()
             if not handle:
-                timestamp = datetime.datetime.now().strftime("%y%m%d-%H%M%S")
-                handle = f"{timestamp}-{session_id:08x}"
+                handle = self._generate_filename(session_id)
+                self.logger.info(f"Using generated filename: {handle}")
 
             if handle in self.files and not overwrite:
-                self.logger.error(f"File '{handle}' already exists and overwrite is disabled")
-                raise FatalStorageError(f"Cannot overwrite '{handle}'")
+                handle = self._resolve_collision(handle, overwrite)
 
             self.files[handle] = self.sessions[session_id][BufferType.DATA.value]
             length = len(self.files[handle].getbuffer())
@@ -330,6 +329,21 @@ class MemoryStorageProvider(StorageProvider):
         with self.lock:
             self.sessions.clear()
             self.logger.info("Purged all active sessions")
+
+    def _resolve_collision(self, filename: str, overwrite: bool) -> str:
+        base = filename
+        ext = ''
+        if '.' in filename:
+            base = filename.rsplit('.', 1)[0]
+            ext = '.' + filename.rsplit('.', 1)[1]
+        suffix = 0
+        new_name = filename
+        while new_name in self.files and not overwrite:
+            suffix += 1
+            new_name = f"{base}_{suffix:03d}{ext}"
+        if suffix > 0:
+            self.logger.warning(f"Resolved '{filename}' to '{new_name}'")
+        return new_name
 
 #ifdef DEBUG
     def list_sessions(self) -> None:

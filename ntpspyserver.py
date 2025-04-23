@@ -19,14 +19,14 @@ logconsole.setLevel(logging.DEBUG)
 logconsole.setFormatter(formatter)
 
 class NTPspyServer(asyncio.DatagramProtocol):
-    def __init__(self, path=None, host=None, port=None, magic_number=None, storage_provider=None, verbose=0, version=3, timestampgen=None, allow_overwrite=False):
+    def __init__(self, path=None, host=None, port=None, magic_number=None, storage_provider=None, verbose=0, version=3, timestampgen=None, allow_overwrite=False, blocked=False):
         self.host = host or "0.0.0.0"
         self.port = port or 1234
         self.magic_number = magic_number or 0xdeadbeef
         self.path = path or "."
         self.version = version
         # temporarily reject all new sessions, cause client to abort current sessions
-        self.blocked = False
+        self.blocked = blocked
         # if overwrite disabled, storage provider either silently renames or fails on name collision
         self.allow_overwrite = allow_overwrite
         self.transport = None
@@ -78,38 +78,36 @@ class NTPspyServer(asyncio.DatagramProtocol):
         """dispatch NTPspy message to appropriate function handler"""
         if self.blocked:
             reply = msg
-            reply.status = NTPspyStatus.ERROR
+            reply.status = NTPspyStatus.FATAL_ERROR
             return reply
-        match msg.function:
-            case NTPspyFunction.PROBE:
-                return self.probe(msg, addr)
-            case NTPspyFunction.NEW_SESSION:
-                return self.session_init(msg, addr)
-            case NTPspyFunction.XFER_DATA:
-                return self.transfer(msg, BufferType.DATA)
-            case NTPspyFunction.CHECK_DATA:
-                return self.verify(msg, BufferType.DATA)
-            case NTPspyFunction.XFER_TEXT:
-                return self.transfer(msg, BufferType.TEXT)
-            case NTPspyFunction.CHECK_TEXT:
-                return self.verify(msg, BufferType.TEXT)
-            case NTPspyFunction.RENAME:
-                return self.rename(msg)
-            case NTPspyFunction.ABORT:
-                return self.abort(msg)
-            case _:
-                return NTPspyMessage(
-                    status=NTPspyStatus.FATAL_ERROR,
-                    version=self.version,
-                    magic=self.magic_number,
-                )  # cease fire
 
+        handlers = {
+            NTPspyFunction.PROBE: lambda: self.probe(msg, addr),
+            NTPspyFunction.NEW_SESSION: lambda: self.session_init(msg, addr),
+            NTPspyFunction.XFER_DATA: lambda: self.transfer(msg, BufferType.DATA),
+            NTPspyFunction.CHECK_DATA: lambda: self.verify(msg, BufferType.DATA),
+            NTPspyFunction.XFER_TEXT: lambda: self.transfer(msg, BufferType.TEXT),
+            NTPspyFunction.CHECK_TEXT: lambda: self.verify(msg, BufferType.TEXT),
+            NTPspyFunction.RENAME: lambda: self.rename(msg),
+            NTPspyFunction.ABORT: lambda: self.abort(msg),
+        }
+
+        handler = handlers.get(msg.function)
+        if handler:
+            return handler()
+        else:
+            return NTPspyMessage(
+                status=NTPspyStatus.FATAL_ERROR,
+                version=self.version,
+                magic=self.magic_number,
+            )  # cease fire
+        
     def probe(self, msg: NTPspyMessage, addr) -> NTPspyMessage:
         """handle version query"""
         client = addr[0]
-        self.logger.info(f"{client}: Handling version probe. Client: {msg.version}, Server: {self.version}")
         reply = msg
         reply.version = self.version
+        self.logger.info(f"{client}: Handling version probe. Client: {msg.version}, Server: {self.version}, Status: {NTPspyStatus(reply.status).name}")
         return reply
     
     def session_init(self, msg: NTPspyMessage, addr) -> NTPspyMessage:

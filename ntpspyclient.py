@@ -85,14 +85,14 @@ class NTPspyClient:
     def transfer_session(self, data: bytes, filename: str = None):
         """upload data block in chunks with optional name"""
         start_time = time.time()
-
         if len(data) == 0:
             self.logger.warning("No data to transfer. Aborting.")
             return False
+        self.logger.info(f"Transferring {_readable_size(len(data))} of data with name: '{filename}'")
 
         # 1) verify presence of NTPspy and matching version
         if not self.check_server_version(self.version):
-            self.logger.error("Server version mismatch. Aborting transfer.")
+            self.logger.error("Server in blocked state or wrong version. Aborting transfer.")
             return False
                 # 2) request new session ID if not manually assigned
         storage_required = len(data) + (len(filename) if filename else 0)
@@ -127,7 +127,7 @@ class NTPspyClient:
             return False
         # 6) finalize session
         if not self.rename(self.session_id):
-            self.logger.error("Failed to rename file. Check server temporary store for session: {self.session_id}")
+            self.logger.error(f"Failed to rename file. Check server temporary store for session: {self.session_id}")
             return False
 
         current_time = time.time()
@@ -167,34 +167,19 @@ class NTPspyClient:
             magic=self.magic_number, 
             version=self.version
         )
-        response = self.send_ntpspy(msg)
-        if not response:
-            self.logger.error("Probe failed.")
-            return None
-        if response.status == NTPspyStatus.ERROR or response.status == NTPspyStatus.FATAL_ERROR:
-            self.logger.error("Server in error state.")
-        if response.version != self.version:
-            self.logger.error(f"Server version mismatch. Client: {self.version}, Server: {response.version}")
-        if response.version == self.version:
-            self.logger.info(f"Received server reply version: {response.version}.")
-        return response
+        return self.send_ntpspy(msg)
 
     def check_server_version(self, local_version: int) -> bool:
         """check server version"""
-        msg = NTPspyMessage(
-            status=1, 
-            function=NTPspyFunction.PROBE, 
-            magic=self.magic_number, 
-            version=local_version
-        )
-        response = self.send_ntpspy(msg)
-        if not response:
+        probe = self.probe()
+        if not probe:
             self.logger.error("No response from server.")
             return False
-        if response.status == NTPspyStatus.ERROR or response.status == NTPspyStatus.FATAL_ERROR:
+        self.logger.debug(probe)
+        if probe.status == NTPspyStatus.ERROR or probe.status == NTPspyStatus.FATAL_ERROR:
             self.logger.error("Server in error state.")
             return False
-        remote_version = response.version
+        remote_version = probe.version
         if local_version != remote_version:
             self.logger.error(f"Version mismatch. Client: {local_version}, Server: {remote_version}")
             return False
@@ -313,11 +298,14 @@ class NTPspyClient:
             handler.setLevel(level)
 
 def _readable_size(size: int) -> str:
-    for unit in ['B', 'KB', 'MB']:
+    for unit in ['B', 'KB', 'MB', 'GB']:
         if size < 1024:
-            return f"{size:.2f} {unit}"
+            fmt_size = f"{size}" if isinstance(size, int) else f"{size:.2f}"
+            fmt_size = int(float(fmt_size)) if fmt_size.endswith('.00') else fmt_size
+            return f"{fmt_size} {unit}"
         size /= 1024
-    return f"{size:.2f} GB"
+    fmt_size = size if isinstance(size, int) else f"{size:.2f}"
+    return f"{fmt_size} GB"
 
 if __name__ == "__main__":
     client = NTPspyClient()
