@@ -28,53 +28,53 @@ logger.addHandler(logconsole)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="NTPspy - data tunneling over NTP")
-    parser.add_argument("-s", type=str, nargs='?', const=DEFAULT_PATH, help="Server mode [storage path] (default CWD)")
-    parser.add_argument("-p", type=int, default=DEFAULT_NTP_PORT, help="Port number")
-    parser.add_argument("-m", type=lambda x: int(x,0), default=DEFAULT_MAGIC_NUMBER, help="Magic number (hex 1-FFFFFFFF)")
-    parser.add_argument("-v", action="count", default=0, help="Verbose mode (repeatable)")
-    parser.add_argument("-o", action="store_true", help="Allow overwrite existing files (server only)")
-    parser.add_argument("-q", action="store_true", help="Query server version and exit (client only)")
-    parser.add_argument("-t", type=int, default=0, help="Minimum interval (sec) (client only)")
+    parser.add_argument("-s", "--server", type=str, nargs='?', const=DEFAULT_PATH, help="Server mode [storage path] (default CWD)")
+    parser.add_argument("-p", "--port", type=int, default=DEFAULT_NTP_PORT, help="Port number")
+    parser.add_argument("-m", "--magic", type=lambda x: int(x,0), default=DEFAULT_MAGIC_NUMBER, help="Magic number (hex 1-FFFFFFFF)")
+    parser.add_argument("-v", "--verbose", action="count", default=0, help="Verbose mode (repeatable)")
+    parser.add_argument("-o", "--overwrite", action="store_true", help="Allow overwrite existing files (server only)")
+    parser.add_argument("-q", "--query", action="store_true", help="Query server version and exit (client only)")
+    parser.add_argument("-t", "--time", type=int, default=0, help="Minimum interval (sec) (client only)")
     parser.add_argument("remote", type=str, nargs='?', help="Remote host (client only)")
     parser.add_argument("files", type=str, nargs='*', help="Filename to transfer (client only)")
-    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}", help="Show version and exit")
+    parser.add_argument("-V", "--version", action="version", version=f"%(prog)s {__version__}", help="Show version and exit")
     args = parser.parse_args()
 
-    logger.setLevel(logging.DEBUG if args.v > 0 else logging.INFO)
+    logger.setLevel(logging.DEBUG if args.verbose > 0 else logging.INFO)
 
     hostname = None
-    port = args.p
+    port = args.port
     if args.remote:
         # tentative support for RFC 3986 style host:port authority
         hostname, _, port_string = args.remote.partition(":")
         try:
-            port = int(port_string) if port_string else args.p 
+            port = int(port_string) if port_string else args.port 
         except ValueError:
             logger.error(f"Invalid port: '{port_string}'")
             exit(1)
         hostname = hostname or None
     else:
         hostname = None
-        port = args.p
+        port = args.port
     if not 1 <= port <= 65535:
         logger.error("Invalid port number")
         exit(1)
 
     # server mode
-    if args.s:
+    if args.server:
         if args.remote or args.files:
             logger.error("Server mode does not accept remote host or filenames")
             parser.print_help()
             exit(1)
         logger.info(f"NTPspy {__version__} starting in server mode.")
-        if args.s == DEFAULT_PATH:
+        if args.server == DEFAULT_PATH:
             logger.warning(f"Storing files in default path: '{DEFAULT_PATH}'")
         server = NTPspyServer(
-            path = args.s, 
-            port = args.p, 
-            verbose = args.v, 
-            magic_number = args.m, 
-            allow_overwrite = args.o
+            path = args.server, 
+            port = port, 
+            verbose = args.verbose, 
+            magic_number = args.magic, 
+            allow_overwrite = args.overwrite,
         )
         asyncio.run(server.start())
 
@@ -83,13 +83,13 @@ if __name__ == "__main__":
         client = NTPspyClient(
             remote = hostname, 
             port = port, 
-            verbose = args.v, 
-            magic_number = args.m, 
-            interval = args.t
+            verbose = args.verbose, 
+            magic_number = args.magic, 
+            interval = args.time
         )
 
         ## probe only
-        if args.q:
+        if args.query:
             probe = client.probe()
             if not probe:
                 logger.error("Probe failed. Server unreachable, not NTPspy, or wrong magic number.")
