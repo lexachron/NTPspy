@@ -274,6 +274,9 @@ class NTPspyClient:
 
     def abort(self, session_id: int):
         """notify server to discontinue and purge session"""
+        if not self.session_id:
+            self.logger.error("No session ID assigned. Nothing to abort")
+            return False
         self.logger.info(f"Sending abort request for session: {session_id}.")
         request = NTPspyMessage(
             function=NTPspyFunction.ABORT,
