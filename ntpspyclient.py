@@ -22,7 +22,7 @@ class NTPspyClient:
         self.magic_number = magic_number
         self.version = version
         self.session_id = session_id
-        self.max_retry = 3
+        self.max_retry = 5
         self.progress_interval = 10 # seconds, between progress messages
         self.interval = interval # delay between transmissions (seconds)
 
