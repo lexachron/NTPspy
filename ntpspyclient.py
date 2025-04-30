@@ -187,20 +187,23 @@ class NTPspyClient:
         return True
 
     def get_session_id(self, storage_required: int) -> int:
-        self.logger.info("Requesting new session ID.")
         session_request = NTPspyMessage(
-            function = NTPspyFunction.NEW_SESSION, 
-            magic = self.magic_number, 
-            session_id = 0,
-            payload = storage_required,
+            function=NTPspyFunction.NEW_SESSION,
+            magic=self.magic_number,
+            session_id=0,
+            payload=storage_required,
         )
-        response = self.send_ntpspy(session_request)
-        if not response or response.status == NTPspyStatus.FATAL_ERROR:
-            self.logger.error("Server denied session request.")
-            return None
-        new_session = response.session_id
-        self.logger.info(f"Received session ID: {new_session:x}")
-        return new_session
+        for attempt in range(self.max_retry):
+            self.logger.info(f"Requesting new session ID. Attempt {attempt + 1}/{self.max_retry}")
+            response = self.send_ntpspy(session_request)
+            if response and response.status != NTPspyStatus.FATAL_ERROR:
+                new_session = response.session_id
+                self.logger.info(f"Received session ID: {new_session:x}")
+                return new_session
+            self.logger.warning("Failed to obtain session ID. Retrying...")
+        self.logger.error("Exceeded maximum retries. Server denied session request.")
+        return None
+
 
     def transfer_chunk(self, session_id: int, type: NTPspyFunction, sequence: int, data: bytes, length: int, chunkcount: int):
         """upload single chunk, data or text, to server"""
@@ -258,19 +261,25 @@ class NTPspyClient:
 
     def rename(self, session_id):
         """instruct server to rename file and finalize session"""
-        self.logger.info(f"Sending rename message for session ID: {session_id}")
-        msg = NTPspyMessage(function=NTPspyFunction.RENAME, magic=self.magic_number, session_id=session_id)
-        response = self.send_ntpspy(msg)
-        if not response:
-            self.logger.error("Rename failed.")
-            return False
-        if response.status == NTPspyStatus.ERROR:
-            self.logger.error("Server reported error. File already exists?")
-            self.abort(session_id)
-            return False
-        if response.status == NTPspyStatus.NORMAL:
-            self.logger.info(f"File renamed successfully for session ID: {session_id}.")
-            return True
+        msg = NTPspyMessage(
+            function=NTPspyFunction.RENAME, 
+            magic=self.magic_number, 
+            session_id=session_id
+        )
+        for attempt in range(self.max_retry):
+            self.logger.info(f"Sending rename message for session ID: {session_id}. Attempt {attempt + 1}/{self.max_retry}")
+            response = self.send_ntpspy(msg)
+            if response:
+                if response.status == NTPspyStatus.NORMAL:
+                    self.logger.info(f"File renamed successfully for session ID: {session_id}.")
+                    return True
+                elif response.status == NTPspyStatus.ERROR:
+                    self.logger.error("Server reported error. File already exists?")
+                    self.abort(session_id)
+                    return False
+            self.logger.warning("Rename attempt failed. Retrying...")
+        self.logger.error(f"Failed to rename file after {self.max_retry} attempts for session ID: {session_id}.")
+        return False
 
     def abort(self, session_id: int):
         """notify server to discontinue and purge session"""
