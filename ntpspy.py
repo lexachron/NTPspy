@@ -30,7 +30,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="NTPspy - data tunneling over NTP")
     parser.add_argument("-s", "--server", type=str, nargs='?', const=DEFAULT_PATH, help="Server mode [storage path] (default CWD)")
     parser.add_argument("-p", "--port", type=int, default=DEFAULT_NTP_PORT, help="Port number")
-    parser.add_argument("-m", "--magic", type=lambda x: int(x,0), default=DEFAULT_MAGIC_NUMBER, help="Magic number (hex 1-FFFFFFFF)")
+    parser.add_argument("-m", "--magic", type=lambda x: int(x,16), default=DEFAULT_MAGIC_NUMBER, help="Magic number (hex 1-FFFFFFFF)")
     parser.add_argument("-v", "--verbose", action="count", default=0, help="Verbose mode (repeatable)")
     parser.add_argument("-o", "--overwrite", action="store_true", help="Allow overwrite existing files (server only)")
     parser.add_argument("-q", "--query", action="store_true", help="Query server version and exit (client only)")
