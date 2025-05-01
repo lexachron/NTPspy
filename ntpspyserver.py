@@ -41,6 +41,7 @@ class NTPspyServer(asyncio.DatagramProtocol):
         self.storage_provider.logger.addHandler(logconsole)
         self.timestampgen = timestampgen or OperationalTimestampGenerator()
         self.set_verbose(verbose)
+        self.logger.info(f"Server created with magic number: 0x{self.magic_number:08x}, saving to {self.path}")
 
     def handle_datagram(self, datagram, addr):
         """discard non-ntp traffic, process rest as ntp, then ntpspy if applicable"""

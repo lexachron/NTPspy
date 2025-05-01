@@ -72,8 +72,10 @@ class NTPspyMessage:
             if len(self.payload) > 4:
                 raise ValueError("Payload length exceeds 4 bytes.")
             ntp.xmt_frac = int.from_bytes(self.payload.ljust(4, b'\x00'), byteorder='big')
+        elif isinstance(self.payload, int):
+            ntp.xmt_frac = self.payload
         else:
-            ntp.xmt_frac = int(self.payload)
+            raise ValueError("Payload must be an integer or bytes.")
         ntp.rootdispersion = self.length
         return ntp
     
